@@ -1,0 +1,34 @@
+[package]
+name = "resilientpay-core"
+version = "0.1.0"
+edition = "2021"
+description = "ResilientPay SDK core: payment domain types, state machine, and validation"
+license = "Apache-2.0"
+repository = "https://github.com/Shikhyy/ResilientPay"
+# Minimum supported Rust version — must be explicitly declared and tested
+rust-version = "1.70"
+
+# The core must be usable as a pure library without Android dependencies.
+[lib]
+name = "resilientpay_core"
+path = "src/lib.rs"
+
+[dependencies]
+# uuid: deterministic transaction/credential ID generation.
+# Feature "v4" for random generation; "serde" for future serialization support.
+# Version pinned; must not be upgraded without changelog + security review.
+uuid = { version = "1.6", features = ["v4"] }
+
+# thiserror: derive-macro for typed error enums.
+# Used at every security/validation boundary.
+thiserror = "1.0"
+
+[dev-dependencies]
+# No test-only dependencies beyond the standard library for now.
+# Property-based testing (proptest) to be added when canonical serialization
+# is implemented (Gate 3).
+
+[profile.release]
+# Release profile: no debug info, optimize for size on embedded/mobile targets.
+opt-level = "s"
+strip = "symbols"
