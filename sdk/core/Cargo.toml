@@ -2,33 +2,42 @@
 name = "resilientpay-core"
 version = "0.1.0"
 edition = "2021"
-description = "ResilientPay SDK core: payment domain types, state machine, and validation"
+description = "ResilientPay SDK core: payment domain types, state machine, validation, serialization, and crypto boundary"
 license = "Apache-2.0"
 repository = "https://github.com/Shikhyy/ResilientPay"
-# Minimum supported Rust version — must be explicitly declared and tested
 rust-version = "1.70"
 
-# The core must be usable as a pure library without Android dependencies.
 [lib]
 name = "resilientpay_core"
 path = "src/lib.rs"
 
 [dependencies]
 # uuid: deterministic transaction/credential ID generation.
-# Feature "v4" for random generation; "serde" for future serialization support.
-# Version pinned; must not be upgraded without changelog + security review.
 uuid = { version = "1.6", features = ["v4"] }
 
-# thiserror: derive-macro for typed error enums.
-# Used at every security/validation boundary.
+# thiserror: derive-macro for typed error enums at security boundaries.
 thiserror = "1.0"
 
+# ciborium: CBOR encoding/decoding (RFC 8949).
+# Used for canonical serialization of PaymentEnvelopeCore before signing.
+# ADR-008: evaluated canonical CBOR as primary signed wire representation.
+ciborium = "0.2"
+
+# ed25519-dalek: Ed25519 signature scheme.
+# Used for the cryptographic signing/verification boundary.
+# ADR-002, CRYPTO_SPEC.md §2: Ed25519 is the default research candidate.
+# rand_core feature: enables key generation in tests; zeroize: wipe key material on drop.
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
+
+# sha2: SHA-256 for hash-chain ledger (ADR-009) and payload digests.
+# From the RustCrypto ecosystem — audited, no_std-compatible.
+sha2 = "0.10"
+
 [dev-dependencies]
-# No test-only dependencies beyond the standard library for now.
-# Property-based testing (proptest) to be added when canonical serialization
-# is implemented (Gate 3).
+# rand: RNG for key generation in test-only signers.
+# Not in production dependencies: signing keys are never generated in-process in prod.
+rand = "0.8"
 
 [profile.release]
-# Release profile: no debug info, optimize for size on embedded/mobile targets.
 opt-level = "s"
 strip = "symbols"

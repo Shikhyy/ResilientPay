@@ -1,56 +1,68 @@
-//! ResilientPay SDK Core
+//! # ResilientPay Core SDK
 //!
-//! This crate contains the pure domain model for the ResilientPay research prototype.
-//! It is intentionally free of Android, network, UI, and transport dependencies so that
-//! every domain invariant can be verified in isolation.
+//! `resilientpay-core` is the transport-independent Rust domain layer for the
+//! ResilientPay research payment system. It provides:
+//!
+//! - **Domain types**: Money, IDs, payment envelopes, offline credentials
+//! - **Transaction state machine**: canonical states and events (extended table)
+//! - **Deterministic validation**: ordered policy/credential/counter/expiry checks
+//! - **Canonical serialization**: CBOR-encoded signing input (ADR-008)
+//! - **Cryptographic boundary**: Ed25519 sign/verify interface (ADR-002, CRYPTO_SPEC.md)
+//! - **Hash-linked local ledger**: append-only tamper-evident event log (ADR-009)
 //!
 //! # Architecture
 //!
-//! ```text
-//! money    — monetary value type (integer minor units, no floating point)
-//! types    — domain newtypes (TransactionId, CredentialId, MerchantId, KeyId)
-//! envelope — PaymentEnvelopeCore (the signed payment record)
-//! credential — OfflineCredential and lifecycle state
-//! state_machine — TransactionState, TransactionEvent, apply_event()
-//! validation — ValidationResult, field validators, rejection taxonomy
-//! errors   — typed error hierarchy
-//! ```
+//! This crate has no Android, network, or filesystem dependencies. Android
+//! applications depend on this crate through the Kotlin/JNI wrapper (`sdk/android/`).
+//! Transport adapters call into this crate but do not contain payment logic.
 //!
-//! # Security notes
+//! # Protocol version
 //!
-//! - No floating-point arithmetic is used for monetary values.
-//! - No cryptographic primitives are implemented here (see ADR-002, CRYPTO_SPEC.md).
-//! - No secrets are stored in these types.
-//! - Validation always fails closed: an unrecognised protocol version returns an error.
-//!
-//! # Protocol reference
-//!
-//! - `docs/05-protocol/PAYMENT_PROTOCOL.md`
-//! - `docs/05-protocol/TRANSACTION_STATE_MACHINE.md`
-//! - `docs/04-security/CRYPTO_SPEC.md`
-//! - `docs/05-protocol/OFFLINE_CREDENTIAL_SPEC.md`
-//! - `docs/06-development/MONEY.md`
+//! [`PROTOCOL_VERSION`] identifies the prototype protocol iteration. It is a
+//! signed field in every payment envelope. Changing it requires a protocol-level
+//! change-control review.
+
+/// Protocol version for this research prototype.
+///
+/// This value is a signed field in every `PaymentEnvelopeCore`. Any change to
+/// this constant requires a protocol change-control review and an ADR update.
+///
+/// # References
+/// - `docs/05-protocol/PAYMENT_PROTOCOL.md` §1 (Protocol versioning)
+pub const PROTOCOL_VERSION: u32 = 1;
+
+// ---------------------------------------------------------------------------
+// Module declarations
+// ---------------------------------------------------------------------------
 
 pub mod credential;
+pub mod crypto;
 pub mod envelope;
 pub mod errors;
+pub mod ledger;
 pub mod money;
+pub mod serialization;
 pub mod state_machine;
 pub mod types;
 pub mod validation;
 
-// Re-export the most commonly used types at the crate root for ergonomics,
-// without flattening the module hierarchy.
-pub use credential::{CredentialLifecycleState, OfflineCredential};
-pub use envelope::PaymentEnvelopeCore;
-pub use errors::{CoreError, TransitionError, ValidationError};
-pub use money::Money;
-pub use state_machine::{TransactionEvent, TransactionState};
-pub use types::{CredentialId, IssuerId, KeyId, MerchantId, MessageId, TransactionId};
-pub use validation::{ValidationResult, Validator};
+// ---------------------------------------------------------------------------
+// Convenience re-exports
+// ---------------------------------------------------------------------------
 
-/// The protocol version this crate implements.
-///
-/// This constant is a signed field in every `PaymentEnvelopeCore`. Changing this
-/// value requires a protocol change-control review (see `.agent/CHANGE_CONTROL.md`).
-pub const PROTOCOL_VERSION: u32 = 1;
+pub use credential::{CredentialLifecycleState, OfflineCredential};
+pub use crypto::{
+    sign_envelope, verify_envelope, CryptoError, Ed25519TestSigner, Ed25519Verifier, PublicKey,
+    Signature, Signer, Verifier,
+};
+pub use envelope::{EnvelopeBuilder, PaymentEnvelopeCore};
+pub use errors::{CoreError, TransitionError, ValidationError};
+pub use ledger::{
+    genesis_chain_hash, InMemoryLedger, LedgerError, LedgerEvent, LedgerEventInput, LocalLedger,
+    DIGEST_LEN,
+};
+pub use money::Money;
+pub use serialization::{encode_envelope_cbor, signing_input, SerializationError};
+pub use state_machine::{apply_event, TransactionEvent, TransactionState};
+pub use types::{CredentialId, IssuerId, KeyId, MerchantId, MessageId, TransactionId};
+pub use validation::{ValidationContext, ValidationResult, Validator};
