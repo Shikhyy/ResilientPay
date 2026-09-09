@@ -1,0 +1,87 @@
+# --- macOS ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V2
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Rust ---
+target/
+Cargo.lock
+*.pdb
+
+# --- Go ---
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.work.sum
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# --- Android / Kotlin / Gradle ---
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+
+# --- IDE ---
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Security: never commit these ---
+*.pem
+*.key
+*.p12
+*.keystore
+.env
+.env.local
+.env.*.local
+secrets/
+credentials/
+google-services.json
+GoogleService-Info.plist
+
+# --- Build artifacts ---
+dist/
+out/
+*.log
+
+# --- Research notebooks (keep .py; exclude heavy outputs) ---
+*.ipynb_checkpoints/
+
+# --- Test artifacts ---
+coverage/
+lcov.info
+*.profraw
