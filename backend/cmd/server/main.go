@@ -1,0 +1,127 @@
+// Package main is the entrypoint for the ResilientPay backend server.
+//
+// This is a prototype backend for research purposes.
+// It does NOT represent a production UPI or banking service.
+//
+// Usage:
+//
+//	./server [--addr :8080]
+//
+// The server starts on :8080 by default. Set RESILIENTPAY_ADDR to override.
+// All protocol parameters (version, key sizes, etc.) are hardcoded per the
+// research specification and must not be changed without a change-control review.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/Shikhyy/ResilientPay/backend/internal/api"
+	"github.com/Shikhyy/ResilientPay/backend/internal/domain"
+	"github.com/Shikhyy/ResilientPay/backend/internal/reconciliation"
+	"github.com/Shikhyy/ResilientPay/backend/internal/store"
+)
+
+func main() {
+	addr := flag.String("addr", envOrDefault("RESILIENTPAY_ADDR", ":8080"), "listen address")
+	flag.Parse()
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	slog.Info("starting ResilientPay backend (research prototype)",
+		"addr", *addr,
+		"note", "this is NOT a production UPI or banking service",
+	)
+
+	// Wiring: in-memory store (replace with PostgreSQL for persistence).
+	st := store.NewMemStore()
+
+	// Wiring: use the no-op verifier until the Ed25519 Go library is integrated.
+	// TODO(Gate 3 backend): integrate filippo.io/edwards25519 or crypto/ecdh for Ed25519.
+	verifier := &noopVerifier{}
+	encoder := &noopEncoder{}
+
+	svc := reconciliation.NewService(st, verifier, encoder)
+	handler := api.NewHandler(svc, st)
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	srv := &http.Server{
+		Addr:         *addr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+		BaseContext: func(_ net.Listener) context.Context {
+			return context.Background()
+		},
+	}
+
+	// Graceful shutdown on SIGINT / SIGTERM.
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		slog.Info("shutdown signal received, draining connections")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("shutdown error", "err", err)
+		}
+		close(idleConnsClosed)
+	}()
+
+	slog.Info("server listening", "addr", *addr)
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("ListenAndServe failed", "err", err)
+		os.Exit(1)
+	}
+
+	<-idleConnsClosed
+	slog.Info("server stopped cleanly")
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder implementations — to be replaced in Gate 3 backend tasks
+// ---------------------------------------------------------------------------
+
+// noopVerifier accepts all signatures until the real Ed25519 backend verifier
+// is integrated. It is clearly named to prevent accidental production use.
+//
+// TODO: Replace with a real Ed25519 verifier (filippo.io/edwards25519 or std crypto).
+type noopVerifier struct{}
+
+func (noopVerifier) Verify(_, _, _ []byte) error {
+	slog.Warn("noopVerifier: signature verification skipped — NOT FOR PRODUCTION USE")
+	return nil
+}
+
+// noopEncoder returns a placeholder canonical byte slice.
+//
+// TODO: Replace with real CBOR encoder that mirrors the Rust SDK serialization.
+type noopEncoder struct{}
+
+func (noopEncoder) Encode(_ *domain.TransactionSubmission) ([]byte, error) {
+	return []byte("placeholder-canonical-bytes"), nil
+}
