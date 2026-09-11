@@ -1,0 +1,481 @@
+openapi: "3.1.0"
+info:
+  title: ResilientPay Backend API
+  version: "1.0.0"
+  description: |
+    **Research prototype** — backend API for the ResilientPay connectivity-resilient
+    payment protocol. This is NOT a UPI or banking production API.
+
+    All monetary values are integer minor units (e.g. paise for INR).
+    No floating-point money values are accepted or returned.
+
+    ## Authentication
+    Service-to-service authentication is required. The current prototype accepts
+    requests without authentication for local development. Production deployments
+    MUST add mTLS or bearer token authentication before connecting to a network.
+
+    ## Idempotency
+    All mutating endpoints are idempotent. Submitting the same transaction twice
+    returns `ALREADY_KNOWN` with HTTP 200 instead of creating a duplicate.
+
+    ## Protocol version
+    The current implementation supports protocol version `1` only.
+    Submitting any other version results in HTTP 422.
+  contact:
+    name: ResilientPay Research Team
+  license:
+    name: Research prototype — see repository LICENSE
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/test-credentials:
+    post:
+      summary: Provision a synthetic test credential
+      description: |
+        Creates a test offline authorization credential for the given Ed25519
+        public key. **Research prototype only** — this is not a real credential
+        issuance endpoint and does not interact with any UPI or bank system.
+      operationId: createTestCredential
+      tags: [Credentials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTestCredentialRequest"
+      responses:
+        "201":
+          description: Credential provisioned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTestCredentialResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reconciliation/transactions:
+    post:
+      summary: Submit a transaction for reconciliation
+      description: |
+        Processes a single `TransactionSubmission` through the normative 8-step
+        ingestion flow:
+        1. Schema validate
+        2. Authenticate Ed25519 signature (server recomputes canonical CBOR)
+        3. Check credential active + not expired
+        4. Idempotency check (exact duplicate → ALREADY_KNOWN)
+        5. Conflict detection (same tx_id, different content → CONFLICT)
+        6. Counter and policy limits
+        7. Persist + audit
+
+        The backend **never trusts client-reported finality**. All security
+        properties are re-verified server-side.
+      operationId: reconcileTransaction
+      tags: [Reconciliation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionSubmission"
+      responses:
+        "201":
+          description: Transaction accepted (ACCEPTED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationOutcome"
+        "200":
+          description: Exact duplicate already known (ALREADY_KNOWN) — idempotent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationOutcome"
+        "409":
+          description: Conflicting evidence detected (CONFLICT)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationOutcome"
+        "422":
+          description: Transaction rejected (REJECTED) — failed validation or policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationOutcome"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/transactions/{tx_id}:
+    get:
+      summary: Get transaction state
+      operationId: getTransaction
+      tags: [Transactions]
+      parameters:
+        - name: tx_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Transaction record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/credentials/{credential_id}:
+    get:
+      summary: Get credential metadata
+      description: Returns credential metadata only. Private key material is never returned.
+      operationId: getCredential
+      tags: [Credentials]
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Credential metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialMetadata"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+components:
+  schemas:
+
+    HealthResponse:
+      type: object
+      required: [status, service, time]
+      properties:
+        status:
+          type: string
+          example: ok
+        service:
+          type: string
+          example: resilientpay-backend
+        time:
+          type: string
+          format: date-time
+
+    CreateTestCredentialRequest:
+      type: object
+      required: [public_key_hex]
+      properties:
+        public_key_hex:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: Hex-encoded Ed25519 public key (32 bytes = 64 hex chars)
+          example: "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+        max_value_per_tx_minor:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 50000
+          description: Maximum amount (paise) per transaction. Integer only.
+        max_value_outstanding_minor:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 200000
+          description: Maximum outstanding offline amount (paise). Integer only.
+        max_counter:
+          type: integer
+          format: int64
+          minimum: 1
+          default: 1000
+          description: Maximum counter value for this credential.
+        valid_for_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          default: 3600
+          description: Credential validity duration in seconds from issuance.
+
+    CreateTestCredentialResponse:
+      type: object
+      required: [credential_id, subject_key_id, state, expires_at]
+      properties:
+        credential_id:
+          type: string
+          format: uuid
+        subject_key_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [ACTIVE]
+        expires_at:
+          type: string
+          format: date-time
+
+    TransactionSubmission:
+      type: object
+      description: |
+        The payload a device sends for reconciliation. All monetary values are
+        integer minor units (paise for INR). No floating-point values.
+
+        The backend re-derives `canonical_bytes` from the fields and verifies the
+        Ed25519 signature. Any discrepancy is a security rejection.
+      required:
+        - protocol_version
+        - tx_id
+        - credential_id
+        - payer_key_id
+        - merchant_id
+        - amount_minor
+        - currency
+        - counter
+        - nonce
+        - created_at_unix
+        - expires_at_unix
+        - signature_bytes
+      properties:
+        protocol_version:
+          type: integer
+          enum: [1]
+        tx_id:
+          type: string
+          format: uuid
+        credential_id:
+          type: string
+          format: uuid
+        payer_key_id:
+          type: string
+          format: uuid
+        merchant_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Amount in integer minor units (e.g. paise for INR). Never float.
+        currency:
+          type: string
+          minLength: 1
+          maxLength: 8
+          example: INR
+        counter:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Monotonically increasing counter. Zero is invalid.
+        nonce:
+          type: string
+          format: byte
+          description: Base64-encoded 16-byte nonce (anti-replay)
+        created_at_unix:
+          type: integer
+          format: int64
+          description: Envelope creation time (Unix seconds, from device clock)
+        expires_at_unix:
+          type: integer
+          format: int64
+          description: Envelope expiry time (Unix seconds)
+        previous_event_hash:
+          type: string
+          format: byte
+          description: Base64-encoded 32-byte hash of previous ledger event (optional)
+        risk_class:
+          type: string
+          description: Optional risk classification label
+        signature_bytes:
+          type: string
+          format: byte
+          description: Base64-encoded Ed25519 signature (64 bytes) over the canonical signing input
+        canonical_bytes:
+          type: string
+          format: byte
+          description: |
+            Optional. Base64-encoded canonical signing input bytes that the device signed.
+            If supplied, the backend verifies these match the server-recomputed bytes.
+            A mismatch is a security rejection (field tampering detected).
+
+    ReconciliationOutcome:
+      type: object
+      required: [tx_id, result, backend_received_at]
+      properties:
+        tx_id:
+          type: string
+          format: uuid
+        result:
+          type: string
+          enum: [ACCEPTED, ALREADY_KNOWN, REJECTED, CONFLICT]
+        reason:
+          type: string
+          description: Human-readable rejection or conflict reason
+        backend_received_at:
+          type: string
+          format: date-time
+
+    Transaction:
+      type: object
+      required:
+        - tx_id, credential_id, payer_key_id, merchant_id
+        - amount_minor, currency, counter, nonce
+        - created_at_unix, expires_at_unix
+        - signature_bytes, protocol_version, state, backend_received_at
+      properties:
+        tx_id:
+          type: string
+          format: uuid
+        credential_id:
+          type: string
+          format: uuid
+        payer_key_id:
+          type: string
+          format: uuid
+        merchant_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: "#/components/schemas/Money"
+        counter:
+          type: integer
+          format: int64
+        nonce:
+          type: string
+          format: byte
+        created_at_unix:
+          type: integer
+          format: int64
+        expires_at_unix:
+          type: integer
+          format: int64
+        previous_event_hash:
+          type: string
+          format: byte
+        risk_class:
+          type: string
+        signature_bytes:
+          type: string
+          format: byte
+        protocol_version:
+          type: integer
+        state:
+          type: string
+          enum:
+            - CREATED
+            - VALIDATING
+            - AUTHORIZED
+            - SIGNED
+            - TRANSFERRED
+            - RECEIVED
+            - LOCALLY_VERIFIED
+            - LOCALLY_RECORDED
+            - SYNC_PENDING
+            - RECONCILED
+            - REJECTED
+            - CONFLICT
+        backend_received_at:
+          type: string
+          format: date-time
+
+    CredentialMetadata:
+      type: object
+      description: Credential metadata — private key material is never returned.
+      required: [credential_id, subject_key_id, state, expires_at, max_counter]
+      properties:
+        credential_id:
+          type: string
+          format: uuid
+        subject_key_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [REQUESTED, ISSUED, ACTIVE, SUSPENDED, REVOKED, EXPIRED]
+        expires_at:
+          type: string
+          format: date-time
+        max_counter:
+          type: integer
+          format: int64
+
+    Money:
+      type: object
+      required: [amount_minor, currency]
+      description: Monetary amount. Always integer minor units. Never float.
+      properties:
+        amount_minor:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          minLength: 1
+          maxLength: 8
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request — invalid input or schema failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+tags:
+  - name: System
+    description: Health and operational endpoints
+  - name: Credentials
+    description: Credential lifecycle (test/research only)
+  - name: Reconciliation
+    description: Transaction reconciliation ingestion
+  - name: Transactions
+    description: Transaction inspection

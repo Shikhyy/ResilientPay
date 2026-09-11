@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/Shikhyy/ResilientPay/backend/internal/api"
-	"github.com/Shikhyy/ResilientPay/backend/internal/domain"
+	bkCrypto "github.com/Shikhyy/ResilientPay/backend/internal/crypto"
 	"github.com/Shikhyy/ResilientPay/backend/internal/reconciliation"
 	"github.com/Shikhyy/ResilientPay/backend/internal/store"
 )
@@ -44,13 +44,16 @@ func main() {
 		"note", "this is NOT a production UPI or banking service",
 	)
 
-	// Wiring: in-memory store (replace with PostgreSQL for persistence).
+	// Wiring: in-memory store.
+	// TODO(persistence): replace with PostgreSQL store once migrations are ready.
 	st := store.NewMemStore()
 
-	// Wiring: use the no-op verifier until the Ed25519 Go library is integrated.
-	// TODO(Gate 3 backend): integrate filippo.io/edwards25519 or crypto/ecdh for Ed25519.
-	verifier := &noopVerifier{}
-	encoder := &noopEncoder{}
+	// Wiring: real Ed25519 verifier (stdlib crypto/ed25519, no external dependency).
+	verifier := bkCrypto.NewEd25519Verifier()
+
+	// Wiring: real CBOR canonical encoder — produces identical bytes to the Rust SDK.
+	// Cross-SDK byte equality is verified by TestCrossSDKTestVector_CBORMatches.
+	encoder := bkCrypto.NewCanonicalEncoder()
 
 	svc := reconciliation.NewService(st, verifier, encoder)
 	handler := api.NewHandler(svc, st)
@@ -95,33 +98,13 @@ func main() {
 	slog.Info("server stopped cleanly")
 }
 
+// ensure reconciliation interfaces are satisfied at compile time
+var _ reconciliation.Verifier = (*bkCrypto.Ed25519Verifier)(nil)
+var _ reconciliation.CanonicalEncoder = (*bkCrypto.CanonicalEncoder)(nil)
+
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return def
-}
-
-// ---------------------------------------------------------------------------
-// Placeholder implementations — to be replaced in Gate 3 backend tasks
-// ---------------------------------------------------------------------------
-
-// noopVerifier accepts all signatures until the real Ed25519 backend verifier
-// is integrated. It is clearly named to prevent accidental production use.
-//
-// TODO: Replace with a real Ed25519 verifier (filippo.io/edwards25519 or std crypto).
-type noopVerifier struct{}
-
-func (noopVerifier) Verify(_, _, _ []byte) error {
-	slog.Warn("noopVerifier: signature verification skipped — NOT FOR PRODUCTION USE")
-	return nil
-}
-
-// noopEncoder returns a placeholder canonical byte slice.
-//
-// TODO: Replace with real CBOR encoder that mirrors the Rust SDK serialization.
-type noopEncoder struct{}
-
-func (noopEncoder) Encode(_ *domain.TransactionSubmission) ([]byte, error) {
-	return []byte("placeholder-canonical-bytes"), nil
 }
