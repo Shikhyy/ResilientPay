@@ -26,6 +26,7 @@ import (
 
 	"github.com/Shikhyy/ResilientPay/backend/internal/api"
 	bkCrypto "github.com/Shikhyy/ResilientPay/backend/internal/crypto"
+	"github.com/Shikhyy/ResilientPay/backend/internal/middleware"
 	"github.com/Shikhyy/ResilientPay/backend/internal/reconciliation"
 	"github.com/Shikhyy/ResilientPay/backend/internal/store"
 )
@@ -59,11 +60,13 @@ func main() {
 	handler := api.NewHandler(svc, st)
 
 	mux := http.NewServeMux()
+	rl := middleware.NewRateLimiter(10, 20)
+
 	handler.RegisterRoutes(mux)
 
 	srv := &http.Server{
 		Addr:         *addr,
-		Handler:      mux,
+		Handler:      rl.Handler(mux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
