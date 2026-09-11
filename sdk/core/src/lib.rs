@@ -37,6 +37,8 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 pub mod credential;
 pub mod crypto;
+pub mod key_manager;
+
 pub mod envelope;
 pub mod errors;
 pub mod ledger;
@@ -52,6 +54,7 @@ pub mod validation;
 
 pub use credential::{CredentialLifecycleState, OfflineCredential};
 pub use crypto::{
+
     sign_envelope, verify_envelope, CryptoError, Ed25519TestSigner, Ed25519Verifier, PublicKey,
     Signature, Signer, Verifier,
 };
@@ -66,3 +69,4 @@ pub use serialization::{encode_envelope_cbor, signing_input, SerializationError}
 pub use state_machine::{apply_event, TransactionEvent, TransactionState};
 pub use types::{CredentialId, IssuerId, KeyId, MerchantId, MessageId, TransactionId};
 pub use validation::{ValidationContext, ValidationResult, Validator};
+pub use key_manager::KeyManager;
