@@ -48,6 +48,15 @@ type Store interface {
 	// Audit
 	RecordAuditEvent(ctx context.Context, ev *domain.AuditEvent) error
 	ListAuditEvents(ctx context.Context, txID *uuid.UUID) ([]*domain.AuditEvent, error)
+
+	// Budget operations
+	// GetOfflineBudget returns the current outstanding minor-unit balance for a credential.
+	// Returns 0 and no error if no record exists yet (first transaction).
+	GetOfflineBudget(ctx context.Context, credentialID uuid.UUID) (outstandingMinor int64, err error)
+
+	// UpdateOfflineBudget atomically adds deltaMinor to the outstanding balance.
+	// deltaMinor must be positive (adding spend). Negative values are not supported.
+	UpdateOfflineBudget(ctx context.Context, credentialID uuid.UUID, deltaMinor int64) error
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +70,7 @@ type MemStore struct {
 	credentials  map[uuid.UUID]*domain.Credential
 	transactions map[uuid.UUID]*domain.Transaction
 	auditEvents  []*domain.AuditEvent
+	budgets      map[uuid.UUID]int64
 }
 
 // NewMemStore creates an empty in-memory store.
@@ -68,6 +78,7 @@ func NewMemStore() *MemStore {
 	return &MemStore{
 		credentials:  make(map[uuid.UUID]*domain.Credential),
 		transactions: make(map[uuid.UUID]*domain.Transaction),
+		budgets:      make(map[uuid.UUID]int64),
 	}
 }
 
@@ -165,4 +176,20 @@ func NewAuditEvent(txID *uuid.UUID, credID *uuid.UUID, kind, detail string) *dom
 		Detail:       detail,
 		OccurredAt:   time.Now().UTC(),
 	}
+}
+
+func (s *MemStore) GetOfflineBudget(ctx context.Context, credentialID uuid.UUID) (int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.budgets[credentialID], nil
+}
+
+func (s *MemStore) UpdateOfflineBudget(ctx context.Context, credentialID uuid.UUID, deltaMinor int64) error {
+	if deltaMinor < 0 {
+		return errors.New("deltaMinor must be positive")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.budgets[credentialID] += deltaMinor
+	return nil
 }

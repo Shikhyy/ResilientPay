@@ -218,6 +218,19 @@ func (s *Service) Reconcile(ctx context.Context, sub *domain.TransactionSubmissi
 	}
 
 	// -----------------------------------------------------------------------
+	// Step 6b: offline budget check
+	// -----------------------------------------------------------------------
+	outstanding, err := s.store.GetOfflineBudget(ctx, sub.CredentialID)
+	if err != nil {
+		return nil, fmt.Errorf("store.GetOfflineBudget: %w", err)
+	}
+	if uint64(outstanding)+sub.AmountMinor > cred.MaxValueOutstanding {
+		s.emitAudit(ctx, &sub.TxID, &sub.CredentialID, "RECONCILE_REJECTED_BUDGET",
+			fmt.Sprintf("adding %d to %d exceeds max %d", sub.AmountMinor, outstanding, cred.MaxValueOutstanding))
+		return reject(sub.TxID, now, "offline budget exceeded"), nil
+	}
+
+	// -----------------------------------------------------------------------
 	// Step 7: Persist new transaction
 	// -----------------------------------------------------------------------
 
@@ -242,6 +255,8 @@ func (s *Service) Reconcile(ctx context.Context, sub *domain.TransactionSubmissi
 	if err := s.store.SaveTransaction(ctx, tx); err != nil {
 		return nil, fmt.Errorf("store.SaveTransaction: %w", err)
 	}
+
+	_ = s.store.UpdateOfflineBudget(ctx, sub.CredentialID, int64(sub.AmountMinor))
 
 	s.emitAudit(ctx, &sub.TxID, &sub.CredentialID, "RECONCILE_ACCEPTED", "")
 

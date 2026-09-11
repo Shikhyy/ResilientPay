@@ -315,3 +315,80 @@ func TestReconcile_UnknownCredentialIsRejected(t *testing.T) {
 		t.Errorf("expected REJECTED for unknown credential, got %s", out.Result)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Budget enforcement
+// ---------------------------------------------------------------------------
+
+func TestReconcile_BudgetAccumulatesCorrectly(t *testing.T) {
+	svc, st := newService(alwaysValidVerifier{})
+	ctx := context.Background()
+
+	cred := makeCredential(domain.CredentialActive, 1*time.Hour)
+	cred.MaxValueOutstanding = 100_000 // 1000 INR
+	cred.MaxValuePerTxMinor = 50_000
+	_ = st.UpsertCredential(ctx, cred)
+
+	// First transaction (50_000) -> fits in budget
+	sub1 := makeSubmission(cred.CredentialID, 1, 50_000)
+	out1, err := svc.Reconcile(ctx, sub1)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out1.Result != domain.ResultAccepted {
+		t.Fatalf("expected ACCEPTED for first tx, got %s: %s", out1.Result, out1.Reason)
+	}
+
+	budget, _ := st.GetOfflineBudget(ctx, cred.CredentialID)
+	if budget != 50_000 {
+		t.Errorf("expected budget 50_000, got %d", budget)
+	}
+
+	// Second transaction (40_000) -> combined 90_000 <= 100_000
+	sub2 := makeSubmission(cred.CredentialID, 2, 40_000)
+	out2, err := svc.Reconcile(ctx, sub2)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out2.Result != domain.ResultAccepted {
+		t.Fatalf("expected ACCEPTED for second tx, got %s: %s", out2.Result, out2.Reason)
+	}
+
+	budget, _ = st.GetOfflineBudget(ctx, cred.CredentialID)
+	if budget != 90_000 {
+		t.Errorf("expected budget 90_000, got %d", budget)
+	}
+}
+
+func TestReconcile_BudgetExceededIsRejected(t *testing.T) {
+	svc, st := newService(alwaysValidVerifier{})
+	ctx := context.Background()
+
+	cred := makeCredential(domain.CredentialActive, 1*time.Hour)
+	cred.MaxValueOutstanding = 100_000 // 1000 INR
+	cred.MaxValuePerTxMinor = 60_000
+	_ = st.UpsertCredential(ctx, cred)
+
+	// First transaction (60_000) -> fits in budget
+	sub1 := makeSubmission(cred.CredentialID, 1, 60_000)
+	out1, err := svc.Reconcile(ctx, sub1)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out1.Result != domain.ResultAccepted {
+		t.Fatalf("expected ACCEPTED for first tx, got %s: %s", out1.Result, out1.Reason)
+	}
+
+	// Second transaction (60_000) -> combined 120_000 > 100_000
+	sub2 := makeSubmission(cred.CredentialID, 2, 60_000)
+	out2, err := svc.Reconcile(ctx, sub2)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out2.Result != domain.ResultRejected {
+		t.Fatalf("expected REJECTED for second tx, got %s", out2.Result)
+	}
+	if out2.Reason != "offline budget exceeded" {
+		t.Errorf("expected reason 'offline budget exceeded', got '%s'", out2.Reason)
+	}
+}
