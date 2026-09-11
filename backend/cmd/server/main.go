@@ -28,6 +28,7 @@ import (
 	bkCrypto "github.com/Shikhyy/ResilientPay/backend/internal/crypto"
 	"github.com/Shikhyy/ResilientPay/backend/internal/middleware"
 	"github.com/Shikhyy/ResilientPay/backend/internal/reconciliation"
+	"github.com/Shikhyy/ResilientPay/backend/internal/settlement"
 	"github.com/Shikhyy/ResilientPay/backend/internal/store"
 )
 
@@ -64,6 +65,11 @@ func main() {
 
 	handler.RegisterRoutes(mux)
 
+	// Wiring: Settlement Worker
+	settlementWorker := settlement.NewWorker(st, 5*time.Second, 100, logger)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	go settlementWorker.Start(workerCtx)
+
 	srv := &http.Server{
 		Addr:         *addr,
 		Handler:      rl.Handler(mux),
@@ -88,6 +94,7 @@ func main() {
 		if err := srv.Shutdown(ctx); err != nil {
 			slog.Error("shutdown error", "err", err)
 		}
+		workerCancel() // stop settlement worker
 		close(idleConnsClosed)
 	}()
 

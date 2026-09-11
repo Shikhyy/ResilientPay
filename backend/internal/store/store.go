@@ -57,6 +57,10 @@ type Store interface {
 	// UpdateOfflineBudget atomically adds deltaMinor to the outstanding balance.
 	// deltaMinor must be positive (adding spend). Negative values are not supported.
 	UpdateOfflineBudget(ctx context.Context, credentialID uuid.UUID, deltaMinor int64) error
+
+	// Settlement operations
+	GetUnsettledTransactions(ctx context.Context, limit int) ([]*domain.Transaction, error)
+	MarkTransactionSettled(ctx context.Context, txID uuid.UUID) error
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +180,34 @@ func NewAuditEvent(txID *uuid.UUID, credID *uuid.UUID, kind, detail string) *dom
 		Detail:       detail,
 		OccurredAt:   time.Now().UTC(),
 	}
+}
+
+
+func (s *MemStore) GetUnsettledTransactions(ctx context.Context, limit int) ([]*domain.Transaction, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var res []*domain.Transaction
+	for _, tx := range s.transactions {
+		if tx.State == domain.StateReconciled {
+			res = append(res, tx)
+			if len(res) == limit {
+				break
+			}
+		}
+	}
+	return res, nil
+}
+
+func (s *MemStore) MarkTransactionSettled(ctx context.Context, txID uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tx, ok := s.transactions[txID]; ok {
+		if tx.State == domain.StateReconciled {
+			tx.State = domain.StateSettled
+		}
+		return nil
+	}
+	return ErrNotFound
 }
 
 func (s *MemStore) GetOfflineBudget(ctx context.Context, credentialID uuid.UUID) (int64, error) {

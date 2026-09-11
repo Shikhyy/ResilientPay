@@ -84,6 +84,10 @@ pub enum TransactionState {
     /// Note: this represents prototype reconciliation, not real UPI settlement.
     Reconciled,
 
+    /// The backend settlement engine has completed fund transfer.
+    /// **Terminal.** Absolute end of lifecycle.
+    Settled,
+
     /// The backend or a local rule rejected this transaction.
     /// **Terminal.** Requires an explicit new protocol event to remediate (outside
     /// the scope of this state machine).
@@ -117,6 +121,7 @@ impl TransactionState {
             Self::Reconciled => "RECONCILED",
             Self::Rejected => "REJECTED",
             Self::Conflict => "CONFLICT",
+            Self::Settled => "SETTLED",
         }
     }
 }
@@ -138,6 +143,8 @@ impl std::fmt::Display for TransactionState {
 /// Do not add, remove, or rename events without a protocol change-control review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TransactionEvent {
+    /// Backend worker completed clearing and settlement.
+    BackendSettled,
     /// A validation pass has been requested for this transaction.
     ValidationRequested,
 
@@ -205,6 +212,7 @@ impl TransactionEvent {
             Self::BackendReconciled => "BACKEND_RECONCILED",
             Self::BackendRejected => "BACKEND_REJECTED",
             Self::BackendConflict => "BACKEND_CONFLICT",
+            Self::BackendSettled => "BACKEND_SETTLED",
         }
     }
 }

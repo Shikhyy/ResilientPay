@@ -27,6 +27,8 @@ SYNC_PENDING
   ├────────→ REJECTED
   ├────────→ CONFLICTED
   └────────→ RECONCILED
+                ↓
+             SETTLED
 ```
 
 Some implementations may collapse states for simplicity, but the meaning must remain explicit.
@@ -44,8 +46,10 @@ Some implementations may collapse states for simplicity, but the meaning must re
 | SYNC_PENDING | RECONCILED | yes | backend accepts evidence |
 | SYNC_PENDING | REJECTED | yes | backend or local rule rejects |
 | SYNC_PENDING | CONFLICTED | yes | conflicting evidence |
-| RECONCILED | CREATED | no | terminal |
-| RECONCILED | SYNC_PENDING | no | terminal |
+| RECONCILED | SETTLED | yes | backend clearing complete |
+| RECONCILED | CREATED | no | cannot go backwards |
+| RECONCILED | SYNC_PENDING | no | cannot go backwards |
+| SETTLED | * | no | absolute terminal state |
 | REJECTED | RECONCILED | no | requires explicit new protocol event |
 
 ## 3. State ownership

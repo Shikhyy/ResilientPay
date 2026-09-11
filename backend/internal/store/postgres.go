@@ -182,3 +182,48 @@ func (s *PostgresStore) UpdateOfflineBudget(ctx context.Context, credentialID uu
 	`, credentialID, deltaMinor)
 	return err
 }
+
+func (s *PostgresStore) GetUnsettledTransactions(ctx context.Context, limit int) ([]*domain.Transaction, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT tx_id, credential_id, payer_key_id, merchant_id,
+		       amount_minor, currency, counter, nonce,
+		       created_at_unix, expires_at_unix, signature_bytes, state
+		FROM transactions
+		WHERE state = 'RECONCILED'
+		ORDER BY created_at_unix ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var txs []*domain.Transaction
+	for rows.Next() {
+		var tx domain.Transaction
+		if err := rows.Scan(
+			&tx.TxID, &tx.CredentialID, &tx.PayerKeyID, &tx.MerchantID,
+			&tx.Amount.AmountMinor, &tx.Amount.Currency, &tx.Counter, &tx.Nonce,
+			&tx.CreatedAtUnix, &tx.ExpiresAtUnix, &tx.SignatureBytes, &tx.State,
+		); err != nil {
+			return nil, err
+		}
+		txs = append(txs, &tx)
+	}
+	return txs, rows.Err()
+}
+
+func (s *PostgresStore) MarkTransactionSettled(ctx context.Context, txID uuid.UUID) error {
+	res, err := s.pool.Exec(ctx, `
+		UPDATE transactions
+		SET state = 'SETTLED'
+		WHERE tx_id = $1 AND state = 'RECONCILED'
+	`, txID)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
