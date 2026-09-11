@@ -108,13 +108,24 @@ func TestReconcileEndpoint_ConflictReturns409(t *testing.T) {
 	})
 	mux := newMux(h)
 
-	body, _ := json.Marshal(map[string]any{"tx_id": txID})
+		body, _ := json.Marshal(map[string]any{
+		"protocol_version": 1,
+		"tx_id":            txID,
+		"credential_id":    uuid.New(),
+		"payer_key_id":     uuid.New(),
+		"merchant_id":      uuid.New(),
+		"amount_minor":     100,
+		"currency":         "INR",
+		"counter":          1,
+		"nonce":            "MDAwMDAwMDAwMDAwMDAwMA==",
+		"signature_bytes":  "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/reconciliation/transactions", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusConflict {
-		t.Errorf("expected 409, got %d", rec.Code)
+		t.Errorf("expected 409, got %d, body: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -186,5 +197,40 @@ func TestGetCredential_NotFoundReturns404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestIssueCredential_InvalidSchemaReturns400(t *testing.T) {
+	h, _ := newTestHandler(nil)
+	mux := newMux(h)
+
+	body := `{"public_key_hex": "123"}` // Invalid, needs to be 64 chars
+	req := httptest.NewRequest(http.MethodPost, "/v1/credentials", bytes.NewReader([]byte(body)))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestIssueCredential_ValidReturns201(t *testing.T) {
+	h, _ := newTestHandler(nil)
+	mux := newMux(h)
+
+	body := `{
+		"subject_key_id_hex": "00000000000000000000000000000000",
+		"public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+		"max_value_per_tx_minor": 50000,
+		"max_value_outstanding_minor": 200000,
+		"max_counter": 1000,
+		"valid_for_seconds": 3600
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/credentials", bytes.NewReader([]byte(body)))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d. body: %s", rec.Code, rec.Body.String())
 	}
 }

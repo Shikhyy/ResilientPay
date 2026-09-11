@@ -1,15 +1,3 @@
-// Package api implements the HTTP API handlers for ResilientPay backend.
-//
-// Endpoints (per docs/06-development/API_SPEC.md §2):
-//
-//	GET  /v1/health
-//	POST /v1/test-credentials         — provision a synthetic test credential
-//	POST /v1/reconciliation/transactions — submit a transaction for reconciliation
-//	GET  /v1/transactions/{tx_id}     — inspect transaction state
-//	GET  /v1/credentials/{credential_id}
-//
-// All responses use JSON. All mutating endpoints are idempotent.
-// Error responses use a structured JSON body.
 package api
 
 import (
@@ -52,8 +40,11 @@ func NewHandler(r Reconciler, s store.Store) *Handler {
 // RegisterRoutes attaches all API routes to the given ServeMux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/health", h.handleHealth)
-	mux.HandleFunc("POST /v1/test-credentials", h.handleCreateTestCredential)
+	// Task 3: Formal issuance API (replaces test-credentials)
+	mux.HandleFunc("POST /v1/credentials", h.handleIssueCredential)
+	// Task 3: Reconcile handler
 	mux.HandleFunc("POST /v1/reconciliation/transactions", h.handleReconcileTransaction)
+	
 	mux.HandleFunc("GET /v1/transactions/", h.handleGetTransaction)
 	mux.HandleFunc("GET /v1/credentials/", h.handleGetCredential)
 }
@@ -89,47 +80,41 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleCreateTestCredential provisions a synthetic test credential.
-// This is a prototype endpoint — NOT a real credential issuance API.
-func (h *Handler) handleCreateTestCredential(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PublicKeyHex        string `json:"public_key_hex"`
-		MaxValuePerTxMinor  uint64 `json:"max_value_per_tx_minor"`
-		MaxValueOutstanding uint64 `json:"max_value_outstanding_minor"`
-		MaxCounter          uint64 `json:"max_counter"`
-		ValidForSeconds     int64  `json:"valid_for_seconds"`
-	}
+// handleIssueCredential provisions a new OfflineCredential for a device securely.
+func (h *Handler) handleIssueCredential(w http.ResponseWriter, r *http.Request) {
+	var req IssueCredentialRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "INVALID_REQUEST")
 		return
 	}
-	if len(req.PublicKeyHex) != 64 {
-		writeError(w, http.StatusBadRequest, "public_key_hex must be 64 hex characters (32 bytes)", "INVALID_PUBLIC_KEY")
+
+	if err := req.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "VALIDATION_FAILED")
 		return
 	}
+
 	pkBytes, err := hexDecode(req.PublicKeyHex)
-	if err != nil || len(pkBytes) != 32 {
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "public_key_hex is not valid hex", "INVALID_PUBLIC_KEY")
 		return
 	}
-	if req.ValidForSeconds <= 0 {
-		req.ValidForSeconds = 3600 // default 1 hour
+
+	subKeyBytes, err := hexDecode(req.SubjectKeyIDHex)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "subject_key_id_hex is not valid hex", "INVALID_SUBJECT_KEY")
+		return
 	}
-	if req.MaxCounter == 0 {
-		req.MaxCounter = 1000
-	}
-	if req.MaxValuePerTxMinor == 0 {
-		req.MaxValuePerTxMinor = 50_000
-	}
-	if req.MaxValueOutstanding == 0 {
-		req.MaxValueOutstanding = 200_000
+	subjectKeyID, err := uuid.FromBytes(subKeyBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid subject key UUID bytes", "INVALID_SUBJECT_KEY")
+		return
 	}
 
 	now := time.Now().UTC()
 	cred := &domain.Credential{
 		CredentialID:        uuid.New(),
-		SubjectKeyID:        uuid.New(),
+		SubjectKeyID:        subjectKeyID,
 		PublicKeyBytes:      pkBytes,
 		IssuedAt:            now,
 		ExpiresAt:           now.Add(time.Duration(req.ValidForSeconds) * time.Second),
@@ -151,6 +136,13 @@ func (h *Handler) handleCreateTestCredential(w http.ResponseWriter, r *http.Requ
 		"subject_key_id": cred.SubjectKeyID.String(),
 		"state":          cred.State,
 		"expires_at":     cred.ExpiresAt.Format(time.RFC3339),
+		// We explicitly return the parameters so the device can construct its local
+		// OfflineCredential structurally.
+		"issued_at":                   cred.IssuedAt.Format(time.RFC3339),
+		"max_value_per_tx_minor":      cred.MaxValuePerTxMinor,
+		"max_value_outstanding_minor": cred.MaxValueOutstanding,
+		"max_counter":                 cred.MaxCounter,
+		"policy_version":              cred.PolicyVersion,
 	})
 }
 
@@ -159,6 +151,11 @@ func (h *Handler) handleReconcileTransaction(w http.ResponseWriter, r *http.Requ
 	var sub domain.TransactionSubmission
 	if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "INVALID_REQUEST")
+		return
+	}
+
+	if err := ValidateSubmission(&sub); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "VALIDATION_FAILED")
 		return
 	}
 
@@ -240,11 +237,6 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 func hexDecode(s string) ([]byte, error) {
-	// stdlib encoding/hex is fine; keep the import local to this function
-	// to avoid confusion with crypto packages.
-	import_ := func() {}
-	_ = import_
-	// Use stdlib hex decode
 	b := make([]byte, len(s)/2)
 	for i := range b {
 		hi := hexNibble(s[i*2])
