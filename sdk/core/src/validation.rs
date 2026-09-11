@@ -87,6 +87,7 @@ pub struct ValidationContext {
     /// Set to `0` if no prior transaction has been processed for this credential
     /// (counters start at 1, so any `counter >= 1` passes when `last_counter = 0`).
     pub last_seen_counter: u64,
+    pub current_outstanding_budget: u64,
 }
 
 /// Pure, stateless validator for a `PaymentEnvelopeCore`.
@@ -125,7 +126,7 @@ impl Validator {
         }
 
         // Step 6: Value/policy checks.
-        if let Err(e) = Self::check_value(envelope, credential) {
+        if let Err(e) = Self::check_value(envelope, credential, context) {
             return ValidationResult::Rejected(e);
         }
 
@@ -217,6 +218,7 @@ impl Validator {
     pub fn check_value(
         envelope: &PaymentEnvelopeCore,
         credential: &OfflineCredential,
+        ctx: &ValidationContext,
     ) -> Result<(), ValidationError> {
         if !envelope
             .amount()
@@ -233,6 +235,19 @@ impl Validator {
                 ),
             });
         }
+
+        let amount_minor = envelope.amount().amount_minor();
+        let outstanding = ctx.current_outstanding_budget;
+        let max_outstanding = credential.max_value_outstanding().amount_minor();
+
+        if outstanding.saturating_add(amount_minor) > max_outstanding {
+            return Err(ValidationError::OfflineBudgetExceeded {
+                amount_minor,
+                outstanding,
+                max_outstanding,
+            });
+        }
+
         Ok(())
     }
 
@@ -323,6 +338,7 @@ mod tests {
             now_unix_secs: 1_200_000,
             expected_merchant_id: merchant_id,
             last_seen_counter: last_counter,
+            current_outstanding_budget: 0,
         }
     }
 
@@ -399,6 +415,7 @@ mod tests {
             now_unix_secs: 2_000_001, // after credential expiry
             expected_merchant_id: merchant_id,
             last_seen_counter: 0,
+            current_outstanding_budget: 0,
         };
         let result = Validator::validate(&env, &cred, &ctx);
         assert!(result.is_rejected());
@@ -418,7 +435,8 @@ mod tests {
         let ctx = ValidationContext {
             now_unix_secs: 1_200_000,
             expected_merchant_id: merchant_id,
-            last_seen_counter: 5, // same as envelope — replay
+            last_seen_counter: 5,
+            current_outstanding_budget: 0, // same as envelope — replay
         };
         let result = Validator::validate(&env, &cred, &ctx);
         assert!(result.is_rejected());
@@ -438,7 +456,8 @@ mod tests {
         let ctx = ValidationContext {
             now_unix_secs: 1_200_000,
             expected_merchant_id: merchant_id,
-            last_seen_counter: 10, // env counter (3) < last seen (10)
+            last_seen_counter: 10,
+            current_outstanding_budget: 0, // env counter (3) < last seen (10)
         };
         let result = Validator::validate(&env, &cred, &ctx);
         assert!(result.is_rejected());
@@ -491,6 +510,7 @@ mod tests {
             now_unix_secs: 1_200_000,
             expected_merchant_id: MerchantId::generate(), // different merchant
             last_seen_counter: 0,
+            current_outstanding_budget: 0,
         };
         let result = Validator::validate(&env, &cred, &ctx);
         assert!(result.is_rejected());
@@ -511,6 +531,7 @@ mod tests {
             now_unix_secs: 1_500_001, // after envelope expiry
             expected_merchant_id: merchant_id,
             last_seen_counter: 0,
+            current_outstanding_budget: 0,
         };
         let result = Validator::validate(&env, &cred, &ctx);
         assert!(result.is_rejected());
@@ -537,5 +558,81 @@ mod tests {
         assert!(!r.is_accepted());
         assert!(r.is_rejected());
         assert!(r.rejection_error().is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // Budget checks
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn budget_exceeded_rejected() {
+        let cred_id = CredentialId::generate();
+        let key_id = KeyId::generate();
+        let merchant_id = MerchantId::generate();
+        
+        let cred = OfflineCredential::new(
+            cred_id,
+            key_id,
+            IssuerId::generate(),
+            1_000_000,
+            2_000_000,
+            Money::new(1000, "INR").unwrap(),
+            Money::new(5000, "INR").unwrap(), // max_outstanding = 5000
+            100,
+            CredentialLifecycleState::Active,
+            1,
+        ).unwrap();
+        
+        let env = valid_envelope(cred_id, key_id, merchant_id, 1, 1000);
+
+        let ctx = ValidationContext {
+            now_unix_secs: 1_400_000,
+            expected_merchant_id: merchant_id,
+            last_seen_counter: 0,
+            current_outstanding_budget: 4500, // 4500 + 1000 = 5500 > 5000
+        };
+
+        let result = Validator::validate(&env, &cred, &ctx);
+        assert!(result.is_rejected());
+        
+        if let Some(ValidationError::OfflineBudgetExceeded { amount_minor, outstanding, max_outstanding }) = result.rejection_error() {
+            assert_eq!(*amount_minor, 1000);
+            assert_eq!(*outstanding, 4500);
+            assert_eq!(*max_outstanding, 5000);
+        } else {
+            panic!("Expected OfflineBudgetExceeded");
+        }
+    }
+
+    #[test]
+    fn budget_exact_accepted() {
+        let cred_id = CredentialId::generate();
+        let key_id = KeyId::generate();
+        let merchant_id = MerchantId::generate();
+        
+        let cred = OfflineCredential::new(
+            cred_id,
+            key_id,
+            IssuerId::generate(),
+            1_000_000,
+            2_000_000,
+            Money::new(1000, "INR").unwrap(),
+            Money::new(5000, "INR").unwrap(), // max_outstanding = 5000
+            100,
+            CredentialLifecycleState::Active,
+            1,
+        ).unwrap();
+        
+        let env = valid_envelope(cred_id, key_id, merchant_id, 1, 1000);
+
+        let ctx = ValidationContext {
+            now_unix_secs: 1_400_000,
+            expected_merchant_id: merchant_id,
+            last_seen_counter: 0,
+            current_outstanding_budget: 4000, // 4000 + 1000 = 5000 == 5000
+        };
+
+        let result = Validator::validate(&env, &cred, &ctx);
+        assert!(result.is_accepted(), "Failed with: {:?}", result.rejection_error());
     }
 }

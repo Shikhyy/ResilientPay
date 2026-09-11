@@ -24,6 +24,10 @@ use thiserror::Error;
 /// They do NOT contain private keys, PINs, or raw credential bytes.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum ValidationError {
+    /// The local offline budget is exceeded.
+    #[error("offline budget exceeded: transaction amount {amount_minor} + outstanding {outstanding} exceeds limit {max_outstanding}")]
+    OfflineBudgetExceeded { amount_minor: u64, outstanding: u64, max_outstanding: u64 },
+
     /// The monetary amount exceeds the configured ceiling.
     #[error("amount {amount_minor} exceeds maximum {max}")]
     AmountExceedsMaximum { amount_minor: u64, max: u64 },

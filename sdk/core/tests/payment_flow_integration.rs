@@ -106,6 +106,7 @@ impl TestFixture {
             now_unix_secs: 1_550_000, // midpoint — within expiry window
             expected_merchant_id: self.merchant_id,
             last_seen_counter: last_counter,
+            current_outstanding_budget: 0,
         }
     }
 }
@@ -256,6 +257,7 @@ fn wrong_merchant_rejected_by_validator() {
         now_unix_secs: 1_550_000,
         expected_merchant_id: MerchantId::generate(), // different merchant
         last_seen_counter: 0,
+            current_outstanding_budget: 0,
     };
 
     let result = Validator::validate(&envelope, &cred, &ctx);
@@ -277,6 +279,7 @@ fn expired_credential_rejected_by_validator() {
         now_unix_secs: 2_000_001, // after credential expiry
         expected_merchant_id: fx.merchant_id,
         last_seen_counter: 0,
+            current_outstanding_budget: 0,
     };
 
     let result = Validator::validate(&envelope, &cred, &ctx);
