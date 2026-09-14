@@ -1,11 +1,11 @@
-# M7G Remote Runtime Verification Report
+# M7H Remote Runtime Verification Report
 
 ## Environment
 - CI/provider: None
-- Runner: Local Sandbox (Apple Silicon headless macOS)
+- Runner: Local Sandbox (Apple Silicon macOS)
 - OS: macOS
 - Android API: 34
-- Device/emulator: Unavailable (Storage limits exceeded)
+- Device/emulator: Unavailable
 - ABI: arm64-v8a / x86_64
 - JDK: 17
 - Gradle: 8.5
@@ -65,15 +65,15 @@
 - x86_64: UNVERIFIED
 
 ## CI
-- workflow: CONFIGURED (.github/workflows/android.yml exists)
-- execution: CI NOT EXECUTED (No remote repository or local actuation available)
+- workflow: CONFIGURED (.github/workflows/android.yml)
+- execution: CI NOT EXECUTED (No remote repository configured to trigger actions)
 - artifacts: None
 
 ## Commits
-None produced during this milestone as no new code changes were necessitated or proven.
+- ci(android): harden emulator instrumentation workflow (in resilientpay-android)
 
 ## Remaining Risks
-- Unpredictable OEM-specific ProviderException mapping during Ed25519 Keystore signing on physical devices.
+- Unpredictable OEM-specific ProviderException mapping during Ed25519 Keystore signing.
 - Potential runtime ABI linking failures since native load has not been tested.
 
 ## Final M7 Decision
