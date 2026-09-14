@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import random
 import uuid
+from resilientpay_sim.risk.model import RuleBasedRiskModel
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -217,6 +218,7 @@ class Simulator:
 
     def __init__(self, config: ScenarioConfig) -> None:
         self.config = config
+        self.risk_model = RuleBasedRiskModel()
         self.rng = random.Random(config.seed)
         self._reconciler = ReconciliationEngine()
         self._event_log: list[SimEvent] = []
@@ -292,6 +294,7 @@ class Simulator:
             nonce=nonce,
             created_at_unix=self._sim_time,
             expires_at_unix=self._sim_time + 3_600,
+            risk_class=None, # Will be set below
         )
 
         self._emit(SimEventKind.PAYMENT_INITIATED,
