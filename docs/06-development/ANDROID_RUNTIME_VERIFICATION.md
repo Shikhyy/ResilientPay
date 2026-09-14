@@ -1,9 +1,11 @@
-# Android Runtime Verification
+# M7G Remote Runtime Verification Report
 
 ## Environment
-- runner/device: Local Sandbox (Apple Silicon headless macOS)
+- CI/provider: None
+- Runner: Local Sandbox (Apple Silicon headless macOS)
 - OS: macOS
 - Android API: 34
+- Device/emulator: Unavailable (Storage limits exceeded)
 - ABI: arm64-v8a / x86_64
 - JDK: 17
 - Gradle: 8.5
@@ -15,51 +17,64 @@
 
 ## Build
 - assembleDebug: COMPLETED
+- assembleDebugAndroidTest: COMPLETED
+- native libraries: BUILT
 - result: VERIFIED
 
-## Native Load
+## Native Library Runtime
+- loaded: UNVERIFIED
+- evidence: No emulator or physical device available to load JNI libraries.
 - result: UNVERIFIED
-- evidence: No emulator or physical device available to load `libresilientpay_core.so` over JNI.
 
-## Keystore
+## Android Keystore
 - key creation: UNVERIFIED
 - public key: UNVERIFIED
 - signing: UNVERIFIED
-- verification: UNVERIFIED
+- Rust verification: UNVERIFIED
 - persistence: UNVERIFIED
 - invalidation: UNVERIFIED
 - error mapping: UNVERIFIED
 
 ## Frozen Vector
 - canonical payload: HOST VERIFIED ONLY
-- Android signature: UNVERIFIED
+- Android signing: UNVERIFIED
 - Rust verification: HOST VERIFIED ONLY
 - result: UNVERIFIED
 
 ## Hardware Protection
 - classification: unavailable
-- evidence: No runtime environment to execute `KeyInfo.isInsideSecureHardware`.
-- limitation: Requires physical device or functional HAXM/ARM64 CI emulator.
+- evidence: No runtime environment to execute KeyInfo.isInsideSecureHardware.
+- limitation: Requires physical device or functional remote CI emulator.
 
 ## Lifecycle
 - result: UNVERIFIED
 
 ## Concurrency
-- operations: 10 threads mapped in `KeystoreIntegrationTest.kt`
-- concurrency: 10
+- operations: 10
+- threads: 10
 - failures: Untested
-- result: UNVERIFIED
+- successful verifications: 0
+- duration: N/A
 
 ## Logging
+- secret leakage: UNVERIFIED
 - result: UNVERIFIED
 
+## ABI Matrix
+- arm64-v8a: UNVERIFIED
+- x86_64: UNVERIFIED
+
 ## CI
-- executed: NO
-- result: CI CONFIGURED / CI NOT EXECUTED
+- workflow: CONFIGURED (.github/workflows/android.yml exists)
+- execution: CI NOT EXECUTED (No remote repository or local actuation available)
+- artifacts: None
+
+## Commits
+None produced during this milestone as no new code changes were necessitated or proven.
 
 ## Remaining Risks
-- Unpredictable OEM-specific `ProviderException` mapping to FfiException during Ed25519 Keystore signing on devices.
-- Potential `cargo-ndk` linking failures due to unverified NDK paths and strict UniFFI ABI compatibility, since `assembleDebug` was not physically completed.
+- Unpredictable OEM-specific ProviderException mapping during Ed25519 Keystore signing on physical devices.
+- Potential runtime ABI linking failures since native load has not been tested.
 
 ## Final M7 Decision
 BLOCKED
