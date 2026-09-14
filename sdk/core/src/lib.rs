@@ -70,3 +70,5 @@ pub use state_machine::{apply_event, TransactionEvent, TransactionState};
 pub use types::{CredentialId, IssuerId, KeyId, MerchantId, MessageId, TransactionId};
 pub use validation::{ValidationContext, ValidationResult, Validator};
 pub use key_manager::KeyManager;
+uniffi::setup_scaffolding!();
+pub mod ffi;

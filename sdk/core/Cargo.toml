@@ -10,32 +10,21 @@ rust-version = "1.70"
 [lib]
 name = "resilientpay_core"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-# uuid: deterministic transaction/credential ID generation.
 uuid = { version = "1.6", features = ["v4"] }
-
-# thiserror: derive-macro for typed error enums at security boundaries.
 thiserror = "1.0"
-
-# ciborium: CBOR encoding/decoding (RFC 8949).
-# Used for canonical serialization of PaymentEnvelopeCore before signing.
-# ADR-008: evaluated canonical CBOR as primary signed wire representation.
 ciborium = "0.2"
-
-# ed25519-dalek: Ed25519 signature scheme.
-# Used for the cryptographic signing/verification boundary.
-# ADR-002, CRYPTO_SPEC.md §2: Ed25519 is the default research candidate.
-# rand_core feature: enables key generation in tests; zeroize: wipe key material on drop.
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
-
-# sha2: SHA-256 for hash-chain ledger (ADR-009) and payload digests.
-# From the RustCrypto ecosystem — audited, no_std-compatible.
 sha2 = "0.10"
+uniffi = { version = "0.28", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
 
 [dev-dependencies]
-# rand: RNG for key generation in test-only signers.
-# Not in production dependencies: signing keys are never generated in-process in prod.
+hex = "0.4.3"
 rand = "0.8"
 
 [profile.release]
