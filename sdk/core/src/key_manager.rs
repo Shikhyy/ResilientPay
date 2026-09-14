@@ -37,10 +37,10 @@ pub trait KeyManager {
 #[cfg(test)]
 pub mod testing {
     use super::*;
-    use crate::crypto::{Ed25519TestSigner};
+    use crate::crypto::Ed25519TestSigner;
+    use rand::{thread_rng, RngCore};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
-    use rand::{RngCore, thread_rng};
 
     #[derive(Default, Clone)]
     pub struct TestKeyManager {
@@ -59,13 +59,13 @@ pub mod testing {
         fn generate_key(&self) -> Result<(KeyId, PublicKey), CryptoError> {
             let mut seed = [0u8; 32];
             thread_rng().fill_bytes(&mut seed);
-            
+
             let signer = Ed25519TestSigner::from_seed(&seed);
             let key_id = KeyId::generate();
             let pk = signer.public_key().clone();
-            
+
             self.seeds.lock().unwrap().insert(key_id, seed);
-            
+
             Ok((key_id, pk))
         }
 
@@ -74,7 +74,9 @@ pub mod testing {
             if let Some(seed) = map.get(key_id) {
                 Ok(Box::new(Ed25519TestSigner::from_seed(seed)))
             } else {
-                Err(CryptoError::MalformedInput { reason: "Key not found".into() })
+                Err(CryptoError::MalformedInput {
+                    reason: "Key not found".into(),
+                })
             }
         }
 
@@ -84,7 +86,9 @@ pub mod testing {
                 let signer = Ed25519TestSigner::from_seed(seed);
                 Ok(Box::new(signer.verifier()))
             } else {
-                Err(CryptoError::MalformedInput { reason: "Key not found".into() })
+                Err(CryptoError::MalformedInput {
+                    reason: "Key not found".into(),
+                })
             }
         }
     }

@@ -13,7 +13,10 @@ impl AndroidKeyManager for MockKeyManager {
 
     fn sign(&self, key_id: String, payload: Vec<u8>) -> Result<Vec<u8>, FfiError> {
         assert_eq!(key_id, self.expected_key_id, "Key ID mismatch crossing FFI");
-        assert_eq!(payload, self.expected_payload, "Signing payload mismatch crossing FFI");
+        assert_eq!(
+            payload, self.expected_payload,
+            "Signing payload mismatch crossing FFI"
+        );
         Ok(self.mock_signature.clone())
     }
 }
@@ -47,45 +50,59 @@ fn test_ffi_create_transaction_matches_frozen_vector() {
 
     let client = ResilientPayClient::new(key_manager);
 
-    let result = client.create_transaction(
-        VECTOR_TX_UUID.to_string(),
-        VECTOR_CR_UUID.to_string(),
-        VECTOR_KEY_UUID.to_string(),
-        VECTOR_MER_UUID.to_string(),
-        VECTOR_AMOUNT,
-        VECTOR_COUNTER,
-        VECTOR_NONCE.to_vec(),
-        VECTOR_CREATED,
-        VECTOR_EXPIRES,
-    ).expect("create_transaction should succeed");
+    let result = client
+        .create_transaction(
+            VECTOR_TX_UUID.to_string(),
+            VECTOR_CR_UUID.to_string(),
+            VECTOR_KEY_UUID.to_string(),
+            VECTOR_MER_UUID.to_string(),
+            VECTOR_AMOUNT,
+            VECTOR_COUNTER,
+            VECTOR_NONCE.to_vec(),
+            VECTOR_CREATED,
+            VECTOR_EXPIRES,
+        )
+        .expect("create_transaction should succeed");
 
     let result_json = String::from_utf8(result).unwrap();
-    
+
     let mock_sig_hex = hex::encode(mock_signature);
-    assert!(result_json.contains(EXPECTED_CBOR_HEX), "CBOR hex missing from output JSON");
-    assert!(result_json.contains(&mock_sig_hex), "Signature hex missing from output JSON");
+    assert!(
+        result_json.contains(EXPECTED_CBOR_HEX),
+        "CBOR hex missing from output JSON"
+    );
+    assert!(
+        result_json.contains(&mock_sig_hex),
+        "Signature hex missing from output JSON"
+    );
 }
 
 #[test]
 fn test_ffi_invalid_uuid() {
     struct DummyKeyManager;
     impl AndroidKeyManager for DummyKeyManager {
-        fn get_public_key(&self, _key_id: String) -> Result<Vec<u8>, FfiError> { Ok(vec![]) }
-        fn sign(&self, _key_id: String, _payload: Vec<u8>) -> Result<Vec<u8>, FfiError> { Ok(vec![]) }
+        fn get_public_key(&self, _key_id: String) -> Result<Vec<u8>, FfiError> {
+            Ok(vec![])
+        }
+        fn sign(&self, _key_id: String, _payload: Vec<u8>) -> Result<Vec<u8>, FfiError> {
+            Ok(vec![])
+        }
     }
 
     let client = ResilientPayClient::new(Box::new(DummyKeyManager));
-    let err = client.create_transaction(
-        "not-a-uuid".to_string(),
-        VECTOR_CR_UUID.to_string(),
-        VECTOR_KEY_UUID.to_string(),
-        VECTOR_MER_UUID.to_string(),
-        VECTOR_AMOUNT,
-        VECTOR_COUNTER,
-        VECTOR_NONCE.to_vec(),
-        VECTOR_CREATED,
-        VECTOR_EXPIRES,
-    ).unwrap_err();
+    let err = client
+        .create_transaction(
+            "not-a-uuid".to_string(),
+            VECTOR_CR_UUID.to_string(),
+            VECTOR_KEY_UUID.to_string(),
+            VECTOR_MER_UUID.to_string(),
+            VECTOR_AMOUNT,
+            VECTOR_COUNTER,
+            VECTOR_NONCE.to_vec(),
+            VECTOR_CREATED,
+            VECTOR_EXPIRES,
+        )
+        .unwrap_err();
 
     assert!(matches!(err, FfiError::InvalidInput(_)));
 }

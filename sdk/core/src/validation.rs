@@ -569,7 +569,7 @@ mod tests {
         let cred_id = CredentialId::generate();
         let key_id = KeyId::generate();
         let merchant_id = MerchantId::generate();
-        
+
         let cred = OfflineCredential::new(
             cred_id,
             key_id,
@@ -581,8 +581,9 @@ mod tests {
             100,
             CredentialLifecycleState::Active,
             1,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let env = valid_envelope(cred_id, key_id, merchant_id, 1, 1000);
 
         let ctx = ValidationContext {
@@ -594,8 +595,13 @@ mod tests {
 
         let result = Validator::validate(&env, &cred, &ctx);
         assert!(result.is_rejected());
-        
-        if let Some(ValidationError::OfflineBudgetExceeded { amount_minor, outstanding, max_outstanding }) = result.rejection_error() {
+
+        if let Some(ValidationError::OfflineBudgetExceeded {
+            amount_minor,
+            outstanding,
+            max_outstanding,
+        }) = result.rejection_error()
+        {
             assert_eq!(*amount_minor, 1000);
             assert_eq!(*outstanding, 4500);
             assert_eq!(*max_outstanding, 5000);
@@ -609,7 +615,7 @@ mod tests {
         let cred_id = CredentialId::generate();
         let key_id = KeyId::generate();
         let merchant_id = MerchantId::generate();
-        
+
         let cred = OfflineCredential::new(
             cred_id,
             key_id,
@@ -621,8 +627,9 @@ mod tests {
             100,
             CredentialLifecycleState::Active,
             1,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let env = valid_envelope(cred_id, key_id, merchant_id, 1, 1000);
 
         let ctx = ValidationContext {
@@ -633,6 +640,10 @@ mod tests {
         };
 
         let result = Validator::validate(&env, &cred, &ctx);
-        assert!(result.is_accepted(), "Failed with: {:?}", result.rejection_error());
+        assert!(
+            result.is_accepted(),
+            "Failed with: {:?}",
+            result.rejection_error()
+        );
     }
 }

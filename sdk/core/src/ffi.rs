@@ -3,10 +3,10 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::envelope::PaymentEnvelopeCore;
-use crate::serialization::signing_input;
-use crate::types::{TransactionId, CredentialId, KeyId, MerchantId};
-use crate::money::Money;
 use crate::errors::ValidationError;
+use crate::money::Money;
+use crate::serialization::signing_input;
+use crate::types::{CredentialId, KeyId, MerchantId, TransactionId};
 
 #[derive(Debug, Error, uniffi::Error)]
 pub enum FfiError {
@@ -32,7 +32,7 @@ impl From<ValidationError> for FfiError {
 pub trait AndroidKeyManager: Send + Sync {
     /// Retrieve the public key bytes for a given key_id
     fn get_public_key(&self, key_id: String) -> Result<Vec<u8>, FfiError>;
-    
+
     /// Request the hardware keystore to sign the exact payload
     fn sign(&self, key_id: String, payload: Vec<u8>) -> Result<Vec<u8>, FfiError>;
 }
@@ -50,6 +50,7 @@ impl ResilientPayClient {
     }
 
     /// Creates a transaction. Prepares canonical bytes -> calls hardware sign -> returns signed envelope payload.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_transaction(
         &self,
         tx_id_str: String,
@@ -62,18 +63,19 @@ impl ResilientPayClient {
         created_at_unix: i64,
         expires_at_unix: i64,
     ) -> Result<Vec<u8>, FfiError> {
-        
         let tx_id = TransactionId::from_uuid(
-            Uuid::parse_str(&tx_id_str).map_err(|e| FfiError::InvalidInput(e.to_string()))?
+            Uuid::parse_str(&tx_id_str).map_err(|e| FfiError::InvalidInput(e.to_string()))?,
         );
         let credential_id = CredentialId::from_uuid(
-            Uuid::parse_str(&credential_id_str).map_err(|e| FfiError::InvalidInput(e.to_string()))?
+            Uuid::parse_str(&credential_id_str)
+                .map_err(|e| FfiError::InvalidInput(e.to_string()))?,
         );
         let payer_key_id = KeyId::from_uuid(
-            Uuid::parse_str(&payer_key_id_str).map_err(|e| FfiError::InvalidInput(e.to_string()))?
+            Uuid::parse_str(&payer_key_id_str)
+                .map_err(|e| FfiError::InvalidInput(e.to_string()))?,
         );
         let merchant_id = MerchantId::from_uuid(
-            Uuid::parse_str(&merchant_id_str).map_err(|e| FfiError::InvalidInput(e.to_string()))?
+            Uuid::parse_str(&merchant_id_str).map_err(|e| FfiError::InvalidInput(e.to_string()))?,
         );
 
         let nonce_array: [u8; 16] = nonce_bytes
@@ -95,19 +97,24 @@ impl ResilientPayClient {
             created_at_unix,
             expires_at_unix,
             None, // previous_event_hash
-            None  // risk_class
+            None, // risk_class
         )?;
 
         // 2 & 3. Canonical serialization + domain separation
-        let signing_input_bytes = signing_input(&core)
-            .map_err(|e| FfiError::SerializationFailure(e.to_string()))?;
+        let signing_input_bytes =
+            signing_input(&core).map_err(|e| FfiError::SerializationFailure(e.to_string()))?;
 
         // 4. Request signing from the Android Keystore callback
-        let signature_bytes = self.key_manager.sign(payer_key_id_str.clone(), signing_input_bytes.clone())?;
-        
+        let signature_bytes = self
+            .key_manager
+            .sign(payer_key_id_str.clone(), signing_input_bytes.clone())?;
+
         // Ensure signature is 64 bytes
         if signature_bytes.len() != 64 {
-            return Err(FfiError::SigningFailure(format!("Hardware signature was {} bytes, expected 64", signature_bytes.len())));
+            return Err(FfiError::SigningFailure(format!(
+                "Hardware signature was {} bytes, expected 64",
+                signature_bytes.len()
+            )));
         }
 
         // 5. Build final payload representation.
@@ -115,7 +122,10 @@ impl ResilientPayClient {
             .map_err(|e| FfiError::SerializationFailure(e.to_string()))?;
 
         let hex_cbor: String = core_cbor.iter().map(|b| format!("{:02x}", b)).collect();
-        let hex_sig: String = signature_bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        let hex_sig: String = signature_bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
 
         let envelope_json = format!(
             r#"{{"core_cbor_hex":"{}","signature_hex":"{}"}}"#,
