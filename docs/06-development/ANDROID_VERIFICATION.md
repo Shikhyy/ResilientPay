@@ -1,5 +1,19 @@
 # Android Verification
 
+## Canonical Status
+    Android build                  VERIFIED
+    Rust Android libraries         VERIFIED
+    Native library load            UNVERIFIED
+    Android Keystore               UNVERIFIED
+    Real Android signing           UNVERIFIED
+    Frozen vector                  HOST VERIFIED ONLY
+    Key persistence                UNVERIFIED
+    Invalidation                   UNVERIFIED
+    Lifecycle                      UNVERIFIED
+    Concurrency                    UNVERIFIED
+    Hardware backing               UNVERIFIED
+    M7 overall                     BLOCKED
+
 ## Toolchain Required
 - **JDK**: 17
 - **Gradle**: 8.5
@@ -20,8 +34,7 @@ The following Keystore capabilities have been integrated in `KeystoreIntegration
 ## Limitations
 Currently **BLOCKED** on local testing.
 - The headless CI sandbox cannot efficiently launch an ARM64/X86_64 emulator or execute `connectedAndroidTest`.
-- The Android SDK provisioning via `sdkmanager` times out due to bandwidth limits inside the sandbox.
-- True hardware-backed Keystore tests must be executed manually on a physical Pixel or Samsung device, or via a remote CI action running `macos-latest` GitHub runner (which provides HAXM acceleration for the emulator).
+- True hardware-backed Keystore tests must be executed manually on a physical Pixel or Samsung device, or via a remote CI action.
 
 ## Decision
-M7 Verification Status: **BLOCKED** (Pending remote CI execution).
+M8 remains gated pending Android runtime verification.
