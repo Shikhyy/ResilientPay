@@ -1,8 +1,9 @@
 """resilientpay_sim.transport package."""
+
 from resilientpay_sim.transport.channel import (
-    TransportKind,
     FaultProfile,
     TransportChannel,
+    TransportKind,
 )
 
 __all__ = ["TransportKind", "FaultProfile", "TransportChannel"]

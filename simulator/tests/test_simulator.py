@@ -9,20 +9,11 @@ Critical test: test_cross_sdk_cbor_vector
     If this test fails, Python-generated envelopes cannot be verified by the
     Rust SDK or Go backend — the cross-language protocol is broken.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from resilientpay_sim.domain.model import (
-    ConnectivityState,
-    Credential,
-    CredentialState,
-    Merchant,
-    Money,
-    PayerDevice,
-    PaymentEnvelope,
-    TransactionState,
-)
 from resilientpay_sim.domain.crypto import (
     SIGNING_DOMAIN_SEPARATOR,
     encode_envelope_cbor,
@@ -31,19 +22,25 @@ from resilientpay_sim.domain.crypto import (
     signing_input,
     verify_envelope,
 )
-from resilientpay_sim.transport.channel import FaultProfile, TransportChannel, TransportKind
+from resilientpay_sim.domain.model import (
+    Credential,
+    CredentialState,
+    Money,
+    PaymentEnvelope,
+    TransactionState,
+)
 from resilientpay_sim.engine import (
-    ReconciliationEngine,
-    ScenarioConfig,
-    Simulator,
     PROTOCOL_VERSION,
+    ReconciliationEngine,
+    Simulator,
 )
 from resilientpay_sim.scenarios.catalogue import (
-    happy_path_internet,
-    partial_loss_internet,
     duplicate_delivery,
     fully_offline,
+    happy_path_internet,
+    partial_loss_internet,
 )
+from resilientpay_sim.transport.channel import FaultProfile, TransportChannel, TransportKind
 
 # ---------------------------------------------------------------------------
 # Cross-SDK test vector (Gate 3 freeze)
@@ -78,7 +75,6 @@ GATE3_SIGNATURE_HEX = (
 
 
 def _vector_envelope() -> PaymentEnvelope:
-    import uuid
     return PaymentEnvelope(
         protocol_version=1,
         tx_id="00000000-0000-0000-0000-000000000001",
@@ -161,6 +157,7 @@ class TestCrossSDKCBORVector:
 # Domain model tests
 # ---------------------------------------------------------------------------
 
+
 class TestMoney:
     def test_valid_amount(self) -> None:
         m = Money(amount_minor=100, currency="INR")
@@ -195,10 +192,14 @@ class TestTransactionState:
 
     def test_non_terminal_states(self) -> None:
         for s in (
-            TransactionState.CREATED, TransactionState.VALIDATING,
-            TransactionState.AUTHORIZED, TransactionState.SIGNED,
-            TransactionState.TRANSFERRED, TransactionState.RECEIVED,
-            TransactionState.LOCALLY_VERIFIED, TransactionState.LOCALLY_RECORDED,
+            TransactionState.CREATED,
+            TransactionState.VALIDATING,
+            TransactionState.AUTHORIZED,
+            TransactionState.SIGNED,
+            TransactionState.TRANSFERRED,
+            TransactionState.RECEIVED,
+            TransactionState.LOCALLY_VERIFIED,
+            TransactionState.LOCALLY_RECORDED,
             TransactionState.SYNC_PENDING,
         ):
             assert not s.is_terminal, f"{s} should not be terminal"
@@ -207,6 +208,7 @@ class TestTransactionState:
 # ---------------------------------------------------------------------------
 # Crypto tests
 # ---------------------------------------------------------------------------
+
 
 class TestSignAndVerify:
     def test_round_trip(self) -> None:
@@ -217,11 +219,13 @@ class TestSignAndVerify:
 
     def test_tampered_amount_rejected(self) -> None:
         from cryptography.exceptions import InvalidSignature
+
         env = _vector_envelope()
         seed, pub = keypair_from_seed(bytes(range(32)))
         sig = sign_envelope(env, seed)
 
         import attr
+
         tampered = attr.evolve(env, amount=Money(amount_minor=1, currency="INR"))
         with pytest.raises(InvalidSignature):
             verify_envelope(tampered, sig, pub)
@@ -238,6 +242,7 @@ class TestSignAndVerify:
 # Transport channel tests
 # ---------------------------------------------------------------------------
 
+
 class TestTransportChannel:
     def test_no_fault_delivers(self) -> None:
         env = _vector_envelope()
@@ -248,6 +253,7 @@ class TestTransportChannel:
 
     def test_100_pct_loss(self) -> None:
         import random
+
         env = _vector_envelope()
         ch = TransportChannel(
             kind=TransportKind.INTERNET,
@@ -260,6 +266,7 @@ class TestTransportChannel:
 
     def test_100_pct_duplicate(self) -> None:
         import random
+
         env = _vector_envelope()
         ch = TransportChannel(
             kind=TransportKind.NFC,
@@ -273,6 +280,7 @@ class TestTransportChannel:
 # ---------------------------------------------------------------------------
 # Reconciliation engine tests
 # ---------------------------------------------------------------------------
+
 
 class TestReconciliationEngine:
     def _make_cred_and_payer(self) -> tuple[Credential, bytes]:
@@ -288,6 +296,7 @@ class TestReconciliationEngine:
 
     def _make_envelope(self, cred: Credential, seed: bytes, counter: int = 1) -> PaymentEnvelope:
         import attr
+
         env = PaymentEnvelope(
             protocol_version=PROTOCOL_VERSION,
             credential_id=cred.credential_id,
@@ -336,10 +345,38 @@ class TestReconciliationEngine:
         state, _ = engine.reconcile(env, now_unix=1_700_001_000)
         assert state == TransactionState.REJECTED
 
+    def test_duplicate_counter_different_tx_id_is_conflict(self) -> None:
+        import attr
+
+        engine = ReconciliationEngine()
+        cred, seed = self._make_cred_and_payer()
+        engine.register_credential(cred)
+
+        # First transaction with counter=1
+        env1 = self._make_envelope(cred, seed, counter=1)
+        state1, reason1 = engine.reconcile(env1, now_unix=1_700_001_000)
+        assert state1 == TransactionState.RECONCILED
+        assert reason1 == "accepted"
+
+        # Second transaction with same credential, same counter=1, but different tx_id
+        env2 = attr.evolve(
+            env1,
+            tx_id="00000000-0000-0000-0000-000000000002",
+            nonce=bytes([0x02] * 16),
+            signature_bytes=None,
+        )
+        sig2 = sign_envelope(env2, seed)
+        env2 = attr.evolve(env2, signature_bytes=sig2)
+
+        state2, reason2 = engine.reconcile(env2, now_unix=1_700_001_000)
+        assert state2 == TransactionState.CONFLICT
+        assert "duplicate counter" in reason2
+
 
 # ---------------------------------------------------------------------------
 # Scenario / end-to-end tests
 # ---------------------------------------------------------------------------
+
 
 class TestScenarios:
     def test_happy_path_all_reconciled(self) -> None:

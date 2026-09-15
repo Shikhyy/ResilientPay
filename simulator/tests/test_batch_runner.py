@@ -1,6 +1,6 @@
-import pytest
-from resilientpay_sim.scenarios.catalogue import ALL_SCENARIOS
 from resilientpay_sim.engine import Simulator
+from resilientpay_sim.scenarios.catalogue import ALL_SCENARIOS
+
 
 def test_all_scenarios_produce_valid_results():
     for scenario_name, config_factory in ALL_SCENARIOS.items():
@@ -17,4 +17,3 @@ def test_all_scenarios_produce_valid_results():
         assert result.total_conflicts >= 0
         assert result.total_transport_losses >= 0
         assert result.total_transport_duplicates >= 0
-

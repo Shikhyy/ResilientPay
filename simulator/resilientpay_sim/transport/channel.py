@@ -15,18 +15,20 @@ Fault modes per SIMULATION.md §4:
     - delay                : message delayed by N simulated seconds
     - malformed            : bytes corrupted before delivery
 """
+
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
-from resilientpay_sim.domain.model import PaymentEnvelope, ConnectivityState
+from resilientpay_sim.domain.model import PaymentEnvelope
 
 
 class TransportKind(Enum):
     """Supported transport adapters per TRANSPORT_ARCHITECTURE.md."""
+
     INTERNET = "INTERNET"
     NFC = "NFC"
     BLE = "BLE"
@@ -40,10 +42,11 @@ class FaultProfile:
 
     All probability values are in [0.0, 1.0].
     """
-    loss_probability: float = 0.0          # P(message silently dropped)
-    duplicate_probability: float = 0.0    # P(message duplicated once)
-    corruption_probability: float = 0.0   # P(message bytes corrupted)
-    delay_seconds: int = 0                 # deterministic delay to add
+
+    loss_probability: float = 0.0  # P(message silently dropped)
+    duplicate_probability: float = 0.0  # P(message duplicated once)
+    corruption_probability: float = 0.0  # P(message bytes corrupted)
+    delay_seconds: int = 0  # deterministic delay to add
 
 
 @dataclass
@@ -56,6 +59,7 @@ class TransportChannel:
 
     Architecture rule: transport outcome ≠ payment validity.
     """
+
     kind: TransportKind
     fault_profile: FaultProfile = field(default_factory=FaultProfile)
     rng: random.Random = field(default_factory=random.Random)
@@ -76,46 +80,54 @@ class TransportChannel:
 
         # 1. Loss
         if fp.loss_probability > 0 and self.rng.random() < fp.loss_probability:
-            self.events.append({
-                "type": "TRANSPORT_LOSS",
-                "tx_id": envelope.tx_id,
-                "sim_time": sim_time,
-                "transport": self.kind.value,
-            })
+            self.events.append(
+                {
+                    "type": "TRANSPORT_LOSS",
+                    "tx_id": envelope.tx_id,
+                    "sim_time": sim_time,
+                    "transport": self.kind.value,
+                }
+            )
             return False
 
         # 2. Corruption
         if fp.corruption_probability > 0 and self.rng.random() < fp.corruption_probability:
             # Record the fault but deliver nothing (corrupted payload dropped)
-            self.events.append({
-                "type": "TRANSPORT_CORRUPTION",
-                "tx_id": envelope.tx_id,
-                "sim_time": sim_time,
-                "transport": self.kind.value,
-            })
+            self.events.append(
+                {
+                    "type": "TRANSPORT_CORRUPTION",
+                    "tx_id": envelope.tx_id,
+                    "sim_time": sim_time,
+                    "transport": self.kind.value,
+                }
+            )
             return False
 
         # 3. Duplicate delivery
         copies = 1
         if fp.duplicate_probability > 0 and self.rng.random() < fp.duplicate_probability:
             copies = 2
-            self.events.append({
-                "type": "TRANSPORT_DUPLICATE",
-                "tx_id": envelope.tx_id,
-                "sim_time": sim_time,
-                "transport": self.kind.value,
-            })
+            self.events.append(
+                {
+                    "type": "TRANSPORT_DUPLICATE",
+                    "tx_id": envelope.tx_id,
+                    "sim_time": sim_time,
+                    "transport": self.kind.value,
+                }
+            )
 
         # 4. Deliver (with delay recorded but not actually sleeping in sim time)
         effective_time = sim_time + fp.delay_seconds
         for _ in range(copies):
             self.delivered.append(envelope)
-            self.events.append({
-                "type": "TRANSPORT_DELIVERED",
-                "tx_id": envelope.tx_id,
-                "sim_time": effective_time,
-                "transport": self.kind.value,
-            })
+            self.events.append(
+                {
+                    "type": "TRANSPORT_DELIVERED",
+                    "tx_id": envelope.tx_id,
+                    "sim_time": effective_time,
+                    "transport": self.kind.value,
+                }
+            )
 
         return True
 

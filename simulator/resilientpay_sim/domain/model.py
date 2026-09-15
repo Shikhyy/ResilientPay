@@ -10,11 +10,12 @@ Protocol reference:
     docs/05-protocol/PAYMENT_PROTOCOL.md
     docs/05-protocol/OFFLINE_CREDENTIAL_SPEC.md
 """
+
 from __future__ import annotations
 
 import uuid
 from enum import Enum
-from typing import Optional
+
 import attr
 
 # ---------------------------------------------------------------------------
@@ -30,10 +31,11 @@ class Money:
 
     Security rule: NEVER use float for monetary values.
     """
+
     amount_minor: int = attr.ib()
     currency: str = attr.ib()
 
-    @amount_minor.validator  # type: ignore[misc]
+    @amount_minor.validator
     def _validate_amount(self, _attribute: attr.Attribute, value: int) -> None:  # type: ignore[type-arg]
         if not isinstance(value, int):
             raise TypeError(f"amount_minor must be int, got {type(value)}")
@@ -42,7 +44,7 @@ class Money:
         if value > MAX_AMOUNT_MINOR:
             raise ValueError(f"amount_minor {value} exceeds maximum {MAX_AMOUNT_MINOR}")
 
-    @currency.validator  # type: ignore[misc]
+    @currency.validator
     def _validate_currency(self, _attribute: attr.Attribute, value: str) -> None:  # type: ignore[type-arg]
         if not (1 <= len(value) <= 8):
             raise ValueError(f"currency must be 1–8 chars, got {value!r}")
@@ -52,6 +54,7 @@ class Money:
 # Connectivity state (C0–C3 per architecture)
 # ---------------------------------------------------------------------------
 
+
 class ConnectivityState(Enum):
     """Device connectivity level.
 
@@ -60,6 +63,7 @@ class ConnectivityState(Enum):
     C2 = intermittent internet (high packet loss / latency)
     C3 = full internet connectivity
     """
+
     C0 = "C0"  # fully offline
     C1 = "C1"  # peer-to-peer only
     C2 = "C2"  # intermittent internet
@@ -69,6 +73,7 @@ class ConnectivityState(Enum):
 # ---------------------------------------------------------------------------
 # Transaction state (mirrors SDK state_machine.rs)
 # ---------------------------------------------------------------------------
+
 
 class TransactionState(Enum):
     CREATED = "CREATED"
@@ -97,6 +102,7 @@ class TransactionState(Enum):
 # Credential lifecycle
 # ---------------------------------------------------------------------------
 
+
 class CredentialState(Enum):
     REQUESTED = "REQUESTED"
     ISSUED = "ISSUED"
@@ -109,6 +115,7 @@ class CredentialState(Enum):
 @attr.s(frozen=True, auto_attribs=True, slots=True)
 class Credential:
     """Offline authorization credential for a payer device."""
+
     # Mandatory fields first (no defaults)
     public_key_bytes: bytes = attr.ib()  # 32 bytes Ed25519 verifying key
     issued_at_unix: int = attr.ib()
@@ -121,7 +128,6 @@ class Credential:
     max_counter: int = attr.ib(default=1_000)
     state: CredentialState = attr.ib(default=CredentialState.ACTIVE)
 
-
     def is_active(self, now_unix: int) -> bool:
         return self.state == CredentialState.ACTIVE and now_unix < self.expires_at_unix
 
@@ -130,9 +136,11 @@ class Credential:
 # Payment envelope (mirrors SDK PaymentEnvelopeCore)
 # ---------------------------------------------------------------------------
 
+
 @attr.s(frozen=True, auto_attribs=True, slots=True)
 class PaymentEnvelope:
     """The signed protocol envelope. All 13 fields match PAYMENT_PROTOCOL.md §2."""
+
     # Mandatory fields — no defaults
     protocol_version: int = attr.ib()
     credential_id: str = attr.ib()
@@ -140,29 +148,30 @@ class PaymentEnvelope:
     merchant_id: str = attr.ib()
     amount: Money = attr.ib()
     counter: int = attr.ib()
-    nonce: bytes = attr.ib()           # 16 bytes
+    nonce: bytes = attr.ib()  # 16 bytes
     created_at_unix: int = attr.ib()
     expires_at_unix: int = attr.ib()
     # Optional / auto-generated fields (must come after mandatory)
     tx_id: str = attr.ib(factory=lambda: str(uuid.uuid4()))
-    previous_event_hash: Optional[bytes] = attr.ib(default=None)   # 32 bytes or None
-    risk_class: Optional[str] = attr.ib(default=None)
+    previous_event_hash: bytes | None = attr.ib(default=None)  # 32 bytes or None
+    risk_class: str | None = attr.ib(default=None)
     # Signature is separate (not part of signed content)
-    signature_bytes: Optional[bytes] = attr.ib(default=None)   # 64 bytes
-
+    signature_bytes: bytes | None = attr.ib(default=None)  # 64 bytes
 
 
 # ---------------------------------------------------------------------------
 # Simulation actors
 # ---------------------------------------------------------------------------
 
+
 @attr.s(auto_attribs=True)
 class PayerDevice:
     """A simulated payer device."""
+
     device_id: str = attr.ib(factory=lambda: str(uuid.uuid4()))
     user_id: str = attr.ib(factory=lambda: str(uuid.uuid4()))
-    credential: Optional[Credential] = attr.ib(default=None)
-    private_key_bytes: Optional[bytes] = attr.ib(default=None)  # 32-byte Ed25519 seed
+    credential: Credential | None = attr.ib(default=None)
+    private_key_bytes: bytes | None = attr.ib(default=None)  # 32-byte Ed25519 seed
     counter: int = attr.ib(default=0)
     connectivity: ConnectivityState = attr.ib(default=ConnectivityState.C3)
     # Pending sync queue (transactions awaiting reconciliation)
@@ -176,6 +185,7 @@ class PayerDevice:
 @attr.s(auto_attribs=True)
 class Merchant:
     """A simulated merchant node."""
+
     merchant_id: str = attr.ib(factory=lambda: str(uuid.uuid4()))
     name: str = attr.ib(default="Merchant")
     connectivity: ConnectivityState = attr.ib(default=ConnectivityState.C3)
@@ -185,6 +195,7 @@ class Merchant:
 # ---------------------------------------------------------------------------
 # Simulation event log (immutable records)
 # ---------------------------------------------------------------------------
+
 
 class SimEventKind(Enum):
     PAYMENT_INITIATED = "PAYMENT_INITIATED"
@@ -204,9 +215,10 @@ class SimEventKind(Enum):
 @attr.s(frozen=True, auto_attribs=True, slots=True)
 class SimEvent:
     """An immutable record of a simulation event."""
+
     kind: SimEventKind = attr.ib()
-    sim_time: int = attr.ib()   # simulated unix timestamp
-    tx_id: Optional[str] = attr.ib(default=None)
-    device_id: Optional[str] = attr.ib(default=None)
-    merchant_id: Optional[str] = attr.ib(default=None)
-    detail: Optional[str] = attr.ib(default=None)
+    sim_time: int = attr.ib()  # simulated unix timestamp
+    tx_id: str | None = attr.ib(default=None)
+    device_id: str | None = attr.ib(default=None)
+    merchant_id: str | None = attr.ib(default=None)
+    detail: str | None = attr.ib(default=None)

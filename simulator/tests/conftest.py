@@ -6,6 +6,7 @@ environment on this machine (it requires pytest_xprocess which is not installed)
 This conftest.py is the correct place to suppress environment-specific plugin
 conflicts without modifying pyproject.toml.
 """
+
 collect_ignore_glob: list[str] = []
 
 

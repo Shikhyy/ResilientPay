@@ -12,10 +12,11 @@ Scenario catalogue:
     replay_attack         — duplicate submissions to test idempotency
     high_volume           — 1000 txns, baseline connectivity stress test
 """
+
 from __future__ import annotations
 
-from resilientpay_sim.engine import ScenarioConfig
 from resilientpay_sim.domain.model import ConnectivityState
+from resilientpay_sim.engine import ScenarioConfig
 from resilientpay_sim.transport.channel import FaultProfile, TransportKind
 
 
@@ -104,6 +105,7 @@ def high_volume_baseline(seed: int = 42) -> ScenarioConfig:
         connectivity=ConnectivityState.C3,
         transport_kind=TransportKind.INTERNET,
         fault_profile=FaultProfile(),
+        credential_valid_seconds=86_400,
     )
 
 

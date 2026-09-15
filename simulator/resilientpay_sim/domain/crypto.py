@@ -15,11 +15,10 @@ Security rules:
     - Private keys exist only in PayerDevice.private_key_bytes (32-byte seed).
     - Signing domain separator MUST match Rust SDK and Go backend.
 """
+
 from __future__ import annotations
 
-import struct
 import uuid as uuid_mod
-from typing import Optional
 
 import cbor2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -28,9 +27,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
-    PublicFormat,
-    PrivateFormat,
     NoEncryption,
+    PrivateFormat,
+    PublicFormat,
 )
 
 from resilientpay_sim.domain.model import PaymentEnvelope
@@ -69,19 +68,19 @@ def encode_envelope_cbor(env: PaymentEnvelope) -> bytes:
     risk_class = env.risk_class  # str or None → CBOR null
 
     array = [
-        env.protocol_version,                    # [0]  uint
-        _uuid_to_bytes(env.tx_id),               # [1]  bstr 16
-        _uuid_to_bytes(env.credential_id),       # [2]  bstr 16
-        _uuid_to_bytes(env.payer_key_id),        # [3]  bstr 16
-        _uuid_to_bytes(env.merchant_id),         # [4]  bstr 16
-        env.amount.amount_minor,                 # [5]  uint
-        env.amount.currency,                     # [6]  tstr
-        env.counter,                             # [7]  uint
-        env.nonce,                               # [8]  bstr 16
-        env.created_at_unix,                     # [9]  int
-        env.expires_at_unix,                     # [10] int
-        previous_event_hash,                     # [11] bstr 32 or null
-        risk_class,                              # [12] tstr or null
+        env.protocol_version,  # [0]  uint
+        _uuid_to_bytes(env.tx_id),  # [1]  bstr 16
+        _uuid_to_bytes(env.credential_id),  # [2]  bstr 16
+        _uuid_to_bytes(env.payer_key_id),  # [3]  bstr 16
+        _uuid_to_bytes(env.merchant_id),  # [4]  bstr 16
+        env.amount.amount_minor,  # [5]  uint
+        env.amount.currency,  # [6]  tstr
+        env.counter,  # [7]  uint
+        env.nonce,  # [8]  bstr 16
+        env.created_at_unix,  # [9]  int
+        env.expires_at_unix,  # [10] int
+        previous_event_hash,  # [11] bstr 32 or null
+        risk_class,  # [12] tstr or null
     ]
 
     return cbor2.dumps(array, timezone=None, canonical=False)

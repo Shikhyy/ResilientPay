@@ -17,17 +17,21 @@ Protocol reference:
     docs/07-research-experiments/SIMULATION.md
     docs/05-protocol/RECONCILIATION_SPEC.md §3
 """
+
 from __future__ import annotations
 
 import random
 import uuid
-from resilientpay_sim.risk.model import RuleBasedRiskModel
 from dataclasses import dataclass, field
-from typing import Optional
 
 import attr
 from cryptography.exceptions import InvalidSignature
 
+from resilientpay_sim.domain.crypto import (
+    generate_keypair,
+    sign_envelope,
+    verify_envelope,
+)
 from resilientpay_sim.domain.model import (
     ConnectivityState,
     Credential,
@@ -40,14 +44,8 @@ from resilientpay_sim.domain.model import (
     SimEventKind,
     TransactionState,
 )
-from resilientpay_sim.domain.crypto import (
-    encode_envelope_cbor,
-    generate_keypair,
-    sign_envelope,
-    verify_envelope,
-)
+from resilientpay_sim.risk.model import RuleBasedRiskModel
 from resilientpay_sim.transport.channel import FaultProfile, TransportChannel, TransportKind
-
 
 # ---------------------------------------------------------------------------
 # Simulation configuration
@@ -62,6 +60,7 @@ class ScenarioConfig:
 
     A scenario is reproducible from (scenario_id, seed, config) alone.
     """
+
     scenario_id: str
     seed: int
     num_payers: int = 10
@@ -82,9 +81,11 @@ class ScenarioConfig:
 # In-process reconciliation engine
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _RecordedTransaction:
     """Internal backend record."""
+
     envelope: PaymentEnvelope
     state: TransactionState
 
@@ -99,13 +100,12 @@ class ReconciliationEngine:
     def __init__(self) -> None:
         self._records: dict[str, _RecordedTransaction] = {}
         self._credentials: dict[str, Credential] = {}
+        self._credential_counters: dict[str, dict[int, str]] = {}
 
     def register_credential(self, cred: Credential) -> None:
         self._credentials[cred.credential_id] = cred
 
-    def reconcile(
-        self, envelope: PaymentEnvelope, now_unix: int
-    ) -> tuple[TransactionState, str]:
+    def reconcile(self, envelope: PaymentEnvelope, now_unix: int) -> tuple[TransactionState, str]:
         """Run the normative ingestion flow.
 
         Returns (resulting_state, reason).
@@ -148,6 +148,14 @@ class ReconciliationEngine:
             existing.state = TransactionState.CONFLICT
             return TransactionState.CONFLICT, "conflicting evidence"
 
+        # Check duplicate counter for same credential with different tx_id (double spend)
+        used_counters = self._credential_counters.setdefault(envelope.credential_id, {})
+        if envelope.counter in used_counters and used_counters[envelope.counter] != envelope.tx_id:
+            return (
+                TransactionState.CONFLICT,
+                "conflicting evidence: duplicate counter for credential",
+            )
+
         # Step 6: counter/policy
         if envelope.counter > cred.max_counter:
             return TransactionState.REJECTED, "counter exceeds credential maximum"
@@ -158,26 +166,22 @@ class ReconciliationEngine:
         self._records[envelope.tx_id] = _RecordedTransaction(
             envelope=envelope, state=TransactionState.RECONCILED
         )
+        used_counters[envelope.counter] = envelope.tx_id
         return TransactionState.RECONCILED, "accepted"
 
     @property
     def total_reconciled(self) -> int:
-        return sum(
-            1 for r in self._records.values()
-            if r.state == TransactionState.RECONCILED
-        )
+        return sum(1 for r in self._records.values() if r.state == TransactionState.RECONCILED)
 
     @property
     def total_conflicts(self) -> int:
-        return sum(
-            1 for r in self._records.values()
-            if r.state == TransactionState.CONFLICT
-        )
+        return sum(1 for r in self._records.values() if r.state == TransactionState.CONFLICT)
 
 
 # ---------------------------------------------------------------------------
 # Simulation result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SimulationResult:
@@ -186,6 +190,7 @@ class SimulationResult:
     Every field needed to reproduce or audit the run is included.
     A screenshot or summary alone is NOT sufficient evidence.
     """
+
     run_id: str
     scenario_id: str
     seed: int
@@ -208,6 +213,7 @@ class SimulationResult:
 # ---------------------------------------------------------------------------
 # Simulator engine
 # ---------------------------------------------------------------------------
+
 
 class Simulator:
     """Drives a simulation run from a ScenarioConfig.
@@ -241,9 +247,11 @@ class Simulator:
         private_seed, public_key = generate_keypair()
         # Override with deterministic seed for reproducibility
         from resilientpay_sim.domain.crypto import keypair_from_seed
+
         private_seed, public_key = keypair_from_seed(seed)
 
         cred = Credential(
+            credential_id=str(uuid.UUID(int=self.rng.getrandbits(128))),
             subject_key_id=str(uuid.UUID(int=self.rng.getrandbits(128))),
             public_key_bytes=public_key,
             issued_at_unix=self._sim_time,
@@ -255,13 +263,18 @@ class Simulator:
         self._reconciler.register_credential(cred)
 
         return PayerDevice(
+            device_id=str(uuid.UUID(int=self.rng.getrandbits(128))),
+            user_id=str(uuid.UUID(int=self.rng.getrandbits(128))),
             credential=cred,
             private_key_bytes=private_seed,
             connectivity=self.config.connectivity,
         )
 
     def _make_merchant(self) -> Merchant:
-        return Merchant(connectivity=self.config.connectivity)
+        return Merchant(
+            merchant_id=str(uuid.UUID(int=self.rng.getrandbits(128))),
+            connectivity=self.config.connectivity,
+        )
 
     # ------------------------------------------------------------------
     # Single transaction flow
@@ -294,51 +307,67 @@ class Simulator:
             nonce=nonce,
             created_at_unix=self._sim_time,
             expires_at_unix=self._sim_time + 3_600,
-            risk_class=None, # Will be set below
+            risk_class=None,
         )
+        # Classify risk (advisory only per ADR-010)
+        envelope = attr.evolve(envelope, risk_class=self.risk_model.classify(envelope).value)
 
-        self._emit(SimEventKind.PAYMENT_INITIATED,
-                   tx_id=envelope.tx_id, device_id=payer.device_id,
-                   merchant_id=merchant.merchant_id)
+        self._emit(
+            SimEventKind.PAYMENT_INITIATED,
+            tx_id=envelope.tx_id,
+            device_id=payer.device_id,
+            merchant_id=merchant.merchant_id,
+        )
 
         # Sign
         sig = sign_envelope(envelope, payer.private_key_bytes)
         # Use attr.evolve() — slots=True means vars() is unavailable
         envelope = attr.evolve(envelope, signature_bytes=sig)
 
-        self._emit(SimEventKind.ENVELOPE_SIGNED,
-                   tx_id=envelope.tx_id, device_id=payer.device_id)
+        self._emit(SimEventKind.ENVELOPE_SIGNED, tx_id=envelope.tx_id, device_id=payer.device_id)
 
         # Transport
         delivered = channel.send(envelope, self._sim_time)
         if not delivered:
-            self._emit(SimEventKind.TRANSPORT_FAILED,
-                       tx_id=envelope.tx_id, device_id=payer.device_id,
-                       detail=f"transport={channel.kind.value} lost")
+            self._emit(
+                SimEventKind.TRANSPORT_FAILED,
+                tx_id=envelope.tx_id,
+                device_id=payer.device_id,
+                detail=f"transport={channel.kind.value} lost",
+            )
             return TransactionState.SYNC_PENDING, False
 
-        self._emit(SimEventKind.ENVELOPE_TRANSFERRED,
-                   tx_id=envelope.tx_id, device_id=payer.device_id,
-                   merchant_id=merchant.merchant_id)
+        self._emit(
+            SimEventKind.ENVELOPE_TRANSFERRED,
+            tx_id=envelope.tx_id,
+            device_id=payer.device_id,
+            merchant_id=merchant.merchant_id,
+        )
 
         # Merchant locally verifies
         try:
             verify_envelope(envelope, sig, payer.credential.public_key_bytes)
         except InvalidSignature:
-            self._emit(SimEventKind.FAULT_INJECTED,
-                       tx_id=envelope.tx_id, detail="local verification failed")
+            self._emit(
+                SimEventKind.FAULT_INJECTED,
+                tx_id=envelope.tx_id,
+                detail="local verification failed",
+            )
             return TransactionState.REJECTED, True
 
-        self._emit(SimEventKind.LOCALLY_VERIFIED, tx_id=envelope.tx_id,
-                   merchant_id=merchant.merchant_id)
+        self._emit(
+            SimEventKind.LOCALLY_VERIFIED, tx_id=envelope.tx_id, merchant_id=merchant.merchant_id
+        )
         self._emit(SimEventKind.LOCALLY_RECORDED, tx_id=envelope.tx_id)
         merchant.received_envelopes.append(envelope)
 
         # Reconcile (in-process)
         state, reason = self._reconciler.reconcile(envelope, self._sim_time)
         kind = (
-            SimEventKind.RECONCILED if state == TransactionState.RECONCILED
-            else SimEventKind.CONFLICT if state == TransactionState.CONFLICT
+            SimEventKind.RECONCILED
+            if state == TransactionState.RECONCILED
+            else SimEventKind.CONFLICT
+            if state == TransactionState.CONFLICT
             else SimEventKind.REJECTED
         )
         self._emit(kind, tx_id=envelope.tx_id, detail=reason)
@@ -352,7 +381,7 @@ class Simulator:
         """Execute the full scenario and return a reproducibility-complete result."""
         cfg = self.config
         result = SimulationResult(
-            run_id=str(uuid.uuid4()),
+            run_id=str(uuid.UUID(int=self.rng.getrandbits(128))),
             scenario_id=cfg.scenario_id,
             seed=cfg.seed,
             protocol_version=PROTOCOL_VERSION,
