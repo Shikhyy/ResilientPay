@@ -206,6 +206,23 @@ func (s *Service) Reconcile(ctx context.Context, sub *domain.TransactionSubmissi
 		return reject(sub.TxID, now, "counter exceeds credential maximum"), nil
 	}
 
+	// Double-spend check: Ensure this counter was not previously used under another tx_id (RP-BK-001)
+	existingByCounter, err := s.store.GetTransactionByCredentialCounter(ctx, sub.CredentialID, sub.Counter)
+	if err != nil && err != store.ErrNotFound {
+		return nil, fmt.Errorf("store.GetTransactionByCredentialCounter: %w", err)
+	}
+	if existingByCounter != nil && existingByCounter.TxID != sub.TxID {
+		reason := fmt.Sprintf("conflicting evidence: duplicate counter %d for credential %s (already used by tx %s)",
+			sub.Counter, sub.CredentialID, existingByCounter.TxID)
+		s.emitAudit(ctx, &sub.TxID, &sub.CredentialID, "RECONCILE_CONFLICT", reason)
+		return &domain.ReconciliationOutcome{
+			TxID:              sub.TxID,
+			Result:            domain.ResultConflict,
+			Reason:            reason,
+			BackendReceivedAt: now,
+		}, nil
+	}
+
 	amount := domain.Money{AmountMinor: sub.AmountMinor, Currency: sub.Currency}
 	if err := amount.Validate(); err != nil {
 		s.emitAudit(ctx, &sub.TxID, &sub.CredentialID, "RECONCILE_REJECTED_AMOUNT", err.Error())

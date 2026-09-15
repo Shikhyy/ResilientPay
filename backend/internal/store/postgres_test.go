@@ -28,16 +28,16 @@ func TestPostgresStore_Integration(t *testing.T) {
 	// 1. Credential tests
 	credID := uuid.New()
 	cred := &domain.Credential{
-		ID:                       credID,
-		SubjectKeyID:             uuid.New(),
-		PublicKeyBytes:           make([]byte, 32),
-		IssuedAt:                 time.Now().Truncate(time.Microsecond).UTC(), // pgx time precision
-		ExpiresAt:                time.Now().Add(24 * time.Hour).Truncate(time.Microsecond).UTC(),
-		MaxValuePerTxMinor:       5000,
-		MaxValueOutstandingMinor: 20000,
-		MaxCounter:               100,
-		State:                    domain.CredentialStateActive,
-		PolicyVersion:            1,
+		CredentialID:        credID,
+		SubjectKeyID:        uuid.New(),
+		PublicKeyBytes:      make([]byte, 32),
+		IssuedAt:            time.Now().Truncate(time.Microsecond).UTC(), // pgx time precision
+		ExpiresAt:           time.Now().Add(24 * time.Hour).Truncate(time.Microsecond).UTC(),
+		MaxValuePerTxMinor:  5000,
+		MaxValueOutstanding: 20000,
+		MaxCounter:          100,
+		State:               domain.CredentialActive,
+		PolicyVersion:       1,
 	}
 
 	err = s.UpsertCredential(ctx, cred)
@@ -49,8 +49,8 @@ func TestPostgresStore_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get credential: %v", err)
 	}
-	if retrievedCred.ID != credID {
-		t.Errorf("Expected ID %s, got %s", credID, retrievedCred.ID)
+	if retrievedCred.CredentialID != credID {
+		t.Errorf("Expected ID %s, got %s", credID, retrievedCred.CredentialID)
 	}
 
 	// 2. Budget tests
@@ -78,19 +78,18 @@ func TestPostgresStore_Integration(t *testing.T) {
 	// 3. Transaction tests
 	txID := uuid.New()
 	tx := &domain.Transaction{
-		ID:              txID,
+		TxID:            txID,
 		CredentialID:    credID,
 		PayerKeyID:      uuid.New(),
 		MerchantID:      uuid.New(),
-		AmountMinor:     150,
-		Currency:        "INR",
+		Amount:          domain.Money{AmountMinor: 150, Currency: "INR"},
 		Counter:         1,
 		Nonce:           make([]byte, 16),
 		CreatedAtUnix:   time.Now().Unix(),
 		ExpiresAtUnix:   time.Now().Add(1 * time.Hour).Unix(),
 		SignatureBytes:  make([]byte, 64),
 		ProtocolVersion: 1,
-		State:           domain.TransactionStateReconciled,
+		State:           domain.StateReconciled,
 	}
 
 	err = s.SaveTransaction(ctx, tx)
@@ -102,7 +101,7 @@ func TestPostgresStore_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get transaction: %v", err)
 	}
-	if retrievedTx.ID != txID {
-		t.Errorf("Expected tx ID %s, got %s", txID, retrievedTx.ID)
+	if retrievedTx.TxID != txID {
+		t.Errorf("Expected tx ID %s, got %s", txID, retrievedTx.TxID)
 	}
 }

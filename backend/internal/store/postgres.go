@@ -99,6 +99,32 @@ func (s *PostgresStore) GetTransaction(ctx context.Context, txID uuid.UUID) (*do
 	return &tx, nil
 }
 
+// GetTransactionByCredentialCounter retrieves a transaction by credential ID and counter.
+func (s *PostgresStore) GetTransactionByCredentialCounter(ctx context.Context, credentialID uuid.UUID, counter uint64) (*domain.Transaction, error) {
+	var tx domain.Transaction
+	err := s.pool.QueryRow(ctx, `
+		SELECT tx_id, credential_id, payer_key_id, merchant_id,
+		       amount_minor, currency, counter, nonce,
+		       created_at_unix, expires_at_unix, previous_event_hash, risk_class,
+		       signature_bytes, protocol_version, state
+		FROM transactions
+		WHERE credential_id = $1 AND counter = $2
+		LIMIT 1
+	`, credentialID, counter).Scan(
+		&tx.TxID, &tx.CredentialID, &tx.PayerKeyID, &tx.MerchantID,
+		&tx.Amount.AmountMinor, &tx.Amount.Currency, &tx.Counter, &tx.Nonce,
+		&tx.CreatedAtUnix, &tx.ExpiresAtUnix, &tx.PreviousEventHash, &tx.RiskClass,
+		&tx.SignatureBytes, &tx.ProtocolVersion, &tx.State,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &tx, nil
+}
+
 // SaveTransaction inserts or updates a transaction idempotently.
 func (s *PostgresStore) SaveTransaction(ctx context.Context, tx *domain.Transaction) error {
 	_, err := s.pool.Exec(ctx, `

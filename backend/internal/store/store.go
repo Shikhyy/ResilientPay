@@ -40,6 +40,7 @@ type Store interface {
 
 	// Transaction operations
 	GetTransaction(ctx context.Context, txID uuid.UUID) (*domain.Transaction, error)
+	GetTransactionByCredentialCounter(ctx context.Context, credentialID uuid.UUID, counter uint64) (*domain.Transaction, error)
 	// SaveTransaction creates or updates a transaction record.
 	// Implementations must ensure idempotency: the same txID submitted twice
 	// with identical content must not create a duplicate row.
@@ -114,6 +115,18 @@ func (s *MemStore) GetTransaction(ctx context.Context, txID uuid.UUID) (*domain.
 	}
 	cp := *tx
 	return &cp, nil
+}
+
+func (s *MemStore) GetTransactionByCredentialCounter(ctx context.Context, credentialID uuid.UUID, counter uint64) (*domain.Transaction, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, tx := range s.transactions {
+		if tx.CredentialID == credentialID && tx.Counter == counter {
+			cp := *tx
+			return &cp, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (s *MemStore) SaveTransaction(ctx context.Context, tx *domain.Transaction) error {

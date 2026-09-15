@@ -92,7 +92,7 @@ const (
 // IsTerminal returns true if no further transitions are permitted.
 func (s TransactionState) IsTerminal() bool {
 	switch s {
-	case StateReconciled, StateRejected, StateConflict, StateSettled:
+	case StateRejected, StateConflict, StateSettled:
 		return true
 	}
 	return false

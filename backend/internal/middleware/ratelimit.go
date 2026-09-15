@@ -90,10 +90,11 @@ func (rl *RateLimiter) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		// We need to read the body to extract credential_id, and then restore it.
-		body, err := io.ReadAll(r.Body)
+		// Limit body read to 64KB to prevent unbounded memory consumption (RP-BK-005)
+		limitedReader := http.MaxBytesReader(w, r.Body, 64*1024)
+		body, err := io.ReadAll(limitedReader)
 		if err != nil {
-			http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
+			http.Error(w, `{"error":"request body too large or invalid"}`, http.StatusBadRequest)
 			return
 		}
 		r.Body.Close()

@@ -392,3 +392,31 @@ func TestReconcile_BudgetExceededIsRejected(t *testing.T) {
 		t.Errorf("expected reason 'offline budget exceeded', got '%s'", out2.Reason)
 	}
 }
+
+func TestReconcile_DuplicateCounterDifferentTxID_IsConflict(t *testing.T) {
+	svc, st := newService(alwaysValidVerifier{})
+	ctx := context.Background()
+
+	cred := makeCredential(domain.CredentialActive, 1*time.Hour)
+	_ = st.UpsertCredential(ctx, cred)
+
+	// First transaction with counter=1
+	sub1 := makeSubmission(cred.CredentialID, 1, 100)
+	out1, err := svc.Reconcile(ctx, sub1)
+	if err != nil {
+		t.Fatalf("unexpected err on sub1: %v", err)
+	}
+	if out1.Result != domain.ResultAccepted {
+		t.Fatalf("expected ACCEPTED for sub1, got %s", out1.Result)
+	}
+
+	// Second transaction with the same counter=1 but different TxID (double-spend attack)
+	sub2 := makeSubmission(cred.CredentialID, 1, 200)
+	out2, err := svc.Reconcile(ctx, sub2)
+	if err != nil {
+		t.Fatalf("unexpected err on sub2: %v", err)
+	}
+	if out2.Result != domain.ResultConflict {
+		t.Errorf("expected CONFLICT for duplicate counter under different TxID, got %s: %s", out2.Result, out2.Reason)
+	}
+}

@@ -34,11 +34,11 @@ func TestMoneyValidate(t *testing.T) {
 }
 
 func TestTransactionStateTerminal(t *testing.T) {
-	terminal := []TransactionState{StateReconciled, StateRejected, StateConflict}
+	terminal := []TransactionState{StateSettled, StateRejected, StateConflict}
 	nonTerminal := []TransactionState{
 		StateCreated, StateValidating, StateAuthorized, StateSigned,
 		StateTransferred, StateReceived, StateLocallyVerified, StateLocallyRecorded,
-		StateSyncPending,
+		StateSyncPending, StateReconciled,
 	}
 
 	for _, s := range terminal {
