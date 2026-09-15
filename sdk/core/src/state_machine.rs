@@ -102,7 +102,7 @@ impl TransactionState {
     /// Return `true` if no further transitions are permitted from this state.
     #[must_use]
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Reconciled | Self::Rejected | Self::Conflict)
+        matches!(self, Self::Settled | Self::Rejected | Self::Conflict)
     }
 
     /// Return a human-readable name matching the normative specification label.
@@ -312,6 +312,11 @@ pub fn apply_event(
             TransactionState::Conflict
         }
 
+        // --- Backend settlement (from RECONCILED) ---
+        (TransactionState::Reconciled, TransactionEvent::BackendSettled) => {
+            TransactionState::Settled
+        }
+
         // --- Everything else is illegal ---
         _ => {
             return Err(TransitionError::IllegalTransition {
@@ -444,7 +449,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(next, TransactionState::Reconciled);
-        assert!(next.is_terminal());
+        assert!(!next.is_terminal());
+
+        let settled = apply_event(next, TransactionEvent::BackendSettled).unwrap();
+        assert_eq!(settled, TransactionState::Settled);
+        assert!(settled.is_terminal());
     }
 
     #[test]
@@ -523,17 +532,28 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn reconciled_rejects_all_events() {
+    fn reconciled_transitions_to_settled() {
+        let next = apply_event(
+            TransactionState::Reconciled,
+            TransactionEvent::BackendSettled,
+        )
+        .expect("Reconciled + BackendSettled must transition to Settled");
+        assert_eq!(next, TransactionState::Settled);
+    }
+
+    #[test]
+    fn settled_rejects_all_events() {
         for event in [
             TransactionEvent::ValidationRequested,
             TransactionEvent::BackendReconciled,
             TransactionEvent::BackendRejected,
+            TransactionEvent::BackendSettled,
             TransactionEvent::SyncQueued,
         ] {
-            let err = apply_event(TransactionState::Reconciled, event).unwrap_err();
+            let err = apply_event(TransactionState::Settled, event).unwrap_err();
             assert!(
                 matches!(err, TransitionError::TerminalState { .. }),
-                "expected TerminalState error for event {:?} on Reconciled",
+                "expected TerminalState error for event {:?} on Settled",
                 event
             );
         }
@@ -630,7 +650,7 @@ mod tests {
     #[test]
     fn only_terminal_states_report_terminal() {
         let terminal = [
-            TransactionState::Reconciled,
+            TransactionState::Settled,
             TransactionState::Rejected,
             TransactionState::Conflict,
         ];
@@ -644,6 +664,7 @@ mod tests {
             TransactionState::LocallyVerified,
             TransactionState::LocallyRecorded,
             TransactionState::SyncPending,
+            TransactionState::Reconciled,
         ];
         for s in terminal {
             assert!(s.is_terminal(), "{} must be terminal", s);
@@ -697,6 +718,10 @@ mod tests {
             (
                 TransactionEvent::BackendReconciled,
                 TransactionState::Reconciled,
+            ),
+            (
+                TransactionEvent::BackendSettled,
+                TransactionState::Settled,
             ),
         ];
 

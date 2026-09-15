@@ -1,14 +1,16 @@
+use resilientpay_core::crypto::{Ed25519TestSigner, Signer};
 use resilientpay_core::ffi::{AndroidKeyManager, FfiError, ResilientPayClient};
 
 struct MockKeyManager {
     expected_key_id: String,
     expected_payload: Vec<u8>,
+    public_key: Vec<u8>,
     mock_signature: Vec<u8>,
 }
 
 impl AndroidKeyManager for MockKeyManager {
     fn get_public_key(&self, _key_id: String) -> Result<Vec<u8>, FfiError> {
-        Ok(vec![])
+        Ok(self.public_key.clone())
     }
 
     fn sign(&self, key_id: String, payload: Vec<u8>) -> Result<Vec<u8>, FfiError> {
@@ -35,17 +37,20 @@ const VECTOR_EXPIRES: i64 = 1_700_003_600;
 const EXPECTED_CBOR_HEX: &str = "8d015000000000000000000000000000000001500000000000000000000000000000000250000000000000000000000000000000035000000000000000000000000000000004189663494e520150010101010101010101010101010101011a6553f1001a6553ff10f6f6";
 
 #[test]
-fn test_ffi_create_transaction_matches_frozen_vector() {
+fn test_ffi_create_and_verify_transaction_matches_frozen_vector() {
     let mut expected_payload = b"resilientpay:payment-envelope:v1:".to_vec();
     let cbor_bytes = hex::decode(EXPECTED_CBOR_HEX).unwrap();
     expected_payload.extend_from_slice(&cbor_bytes);
 
-    let mock_signature = vec![0x99; 64];
+    let signer = Ed25519TestSigner::from_seed(&[0x42; 32]);
+    let public_key = signer.public_key().to_bytes().to_vec();
+    let signature = signer.sign(&expected_payload).unwrap().to_bytes().to_vec();
 
     let key_manager = Box::new(MockKeyManager {
         expected_key_id: VECTOR_KEY_UUID.to_string(),
         expected_payload,
-        mock_signature: mock_signature.clone(),
+        public_key: public_key.clone(),
+        mock_signature: signature.clone(),
     });
 
     let client = ResilientPayClient::new(key_manager);
@@ -62,19 +67,25 @@ fn test_ffi_create_transaction_matches_frozen_vector() {
             VECTOR_CREATED,
             VECTOR_EXPIRES,
         )
-        .expect("create_transaction should succeed");
+        .expect("create_transaction should succeed with local verification");
 
-    let result_json = String::from_utf8(result).unwrap();
+    let result_json = String::from_utf8(result.clone()).unwrap();
 
-    let mock_sig_hex = hex::encode(mock_signature);
+    let sig_hex = hex::encode(&signature);
     assert!(
         result_json.contains(EXPECTED_CBOR_HEX),
         "CBOR hex missing from output JSON"
     );
     assert!(
-        result_json.contains(&mock_sig_hex),
+        result_json.contains(&sig_hex),
         "Signature hex missing from output JSON"
     );
+
+    // Test merchant verification via FFI
+    let verified = client
+        .verify_transaction(result, public_key)
+        .expect("verify_transaction should succeed");
+    assert!(verified, "Merchant FFI verification must return true");
 }
 
 #[test]

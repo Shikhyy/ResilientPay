@@ -19,6 +19,7 @@ ciborium = "0.2"
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 sha2 = "0.10"
 uniffi = { version = "0.28", features = ["cli"] }
+hex = "0.4.3"
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

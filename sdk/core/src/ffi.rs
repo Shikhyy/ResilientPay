@@ -117,6 +117,17 @@ impl ResilientPayClient {
             )));
         }
 
+        // Verify signature locally using the public key from the key manager (ADR-012 §4 Step 6)
+        let pubkey_bytes = self
+            .key_manager
+            .get_public_key(payer_key_id_str)?;
+        let verifier = crate::crypto::Ed25519Verifier::from_bytes(&pubkey_bytes)
+            .map_err(|e| FfiError::SigningFailure(format!("Invalid public key: {}", e)))?;
+        let sig = crate::crypto::Signature::from_bytes(&signature_bytes)
+            .map_err(|e| FfiError::SigningFailure(format!("Invalid signature format: {}", e)))?;
+        crate::crypto::verify_envelope(&core, &sig, &verifier)
+            .map_err(|e| FfiError::SigningFailure(format!("Local verification failed: {}", e)))?;
+
         // 5. Build final payload representation.
         let core_cbor = crate::serialization::encode_envelope_cbor(&core)
             .map_err(|e| FfiError::SerializationFailure(e.to_string()))?;
@@ -134,4 +145,82 @@ impl ResilientPayClient {
 
         Ok(envelope_json.into_bytes())
     }
+
+    /// Verifies a received payment envelope payload against a trusted payer public key.
+    /// Returns true if the signature is valid.
+    pub fn verify_transaction(
+        &self,
+        envelope_json_bytes: Vec<u8>,
+        payer_public_key: Vec<u8>,
+    ) -> Result<bool, FfiError> {
+        let json_str = String::from_utf8(envelope_json_bytes)
+            .map_err(|e| FfiError::InvalidInput(format!("Invalid UTF-8: {}", e)))?;
+
+        let (cbor_hex, sig_hex) = parse_envelope_json(&json_str)?;
+        let cbor_bytes = hex::decode(&cbor_hex)
+            .map_err(|e| FfiError::InvalidInput(format!("Invalid CBOR hex: {}", e)))?;
+        let sig_bytes = hex::decode(&sig_hex)
+            .map_err(|e| FfiError::InvalidInput(format!("Invalid signature hex: {}", e)))?;
+
+        let decoded = crate::serialization::decode_envelope_cbor_fields(&cbor_bytes)
+            .map_err(|e| FfiError::SerializationFailure(e.to_string()))?;
+
+        let tx_id = TransactionId::from_uuid(Uuid::from_bytes(decoded.tx_id_bytes));
+        let credential_id = CredentialId::from_uuid(Uuid::from_bytes(decoded.credential_id_bytes));
+        let payer_key_id = KeyId::from_uuid(Uuid::from_bytes(decoded.payer_key_id_bytes));
+        let merchant_id = MerchantId::from_uuid(Uuid::from_bytes(decoded.merchant_id_bytes));
+        let amount = Money::new(decoded.amount_minor, &decoded.currency)?;
+
+        let core = PaymentEnvelopeCore::new(
+            decoded.protocol_version,
+            tx_id,
+            credential_id,
+            payer_key_id,
+            merchant_id,
+            amount,
+            decoded.counter,
+            decoded.nonce,
+            decoded.created_at_unix_secs,
+            decoded.expires_at_unix_secs,
+            decoded.previous_event_hash,
+            decoded.risk_class,
+        )?;
+
+        let verifier = crate::crypto::Ed25519Verifier::from_bytes(&payer_public_key)
+            .map_err(|e| FfiError::InvalidInput(format!("Invalid public key: {}", e)))?;
+        let sig = crate::crypto::Signature::from_bytes(&sig_bytes)
+            .map_err(|e| FfiError::InvalidInput(format!("Invalid signature format: {}", e)))?;
+
+        match crate::crypto::verify_envelope(&core, &sig, &verifier) {
+            Ok(()) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+}
+
+fn parse_envelope_json(json_str: &str) -> Result<(String, String), FfiError> {
+    let cbor_prefix = "\"core_cbor_hex\":\"";
+    let sig_prefix = "\"signature_hex\":\"";
+
+    let cbor_start = json_str
+        .find(cbor_prefix)
+        .ok_or_else(|| FfiError::InvalidInput("Missing core_cbor_hex in envelope JSON".into()))?
+        + cbor_prefix.len();
+    let cbor_end = json_str[cbor_start..]
+        .find('"')
+        .ok_or_else(|| FfiError::InvalidInput("Unterminated core_cbor_hex string".into()))?
+        + cbor_start;
+    let cbor_hex = &json_str[cbor_start..cbor_end];
+
+    let sig_start = json_str
+        .find(sig_prefix)
+        .ok_or_else(|| FfiError::InvalidInput("Missing signature_hex in envelope JSON".into()))?
+        + sig_prefix.len();
+    let sig_end = json_str[sig_start..]
+        .find('"')
+        .ok_or_else(|| FfiError::InvalidInput("Unterminated signature_hex string".into()))?
+        + sig_start;
+    let sig_hex = &json_str[sig_start..sig_end];
+
+    Ok((cbor_hex.to_string(), sig_hex.to_string()))
 }

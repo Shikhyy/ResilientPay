@@ -171,12 +171,13 @@ fn full_payment_flow_happy_path() {
         TransactionEvent::Persisted,
         TransactionEvent::SyncQueued,
         TransactionEvent::BackendReconciled,
+        TransactionEvent::BackendSettled,
     ];
     for step in steps {
         state = apply_event(state, step)
             .unwrap_or_else(|e| panic!("unexpected state machine error on {step:?}: {e:?}"));
     }
-    assert_eq!(state, TransactionState::Reconciled);
+    assert_eq!(state, TransactionState::Settled);
     assert!(state.is_terminal());
 }
 

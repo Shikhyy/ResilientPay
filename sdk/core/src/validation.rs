@@ -220,6 +220,13 @@ impl Validator {
         credential: &OfflineCredential,
         ctx: &ValidationContext,
     ) -> Result<(), ValidationError> {
+        if envelope.amount().amount_minor() == 0 {
+            return Err(ValidationError::FieldOutOfRange {
+                field: "amount".into(),
+                reason: "transaction amount must be greater than zero".into(),
+            });
+        }
+
         if !envelope
             .amount()
             .is_within_limit(credential.max_value_per_tx())
