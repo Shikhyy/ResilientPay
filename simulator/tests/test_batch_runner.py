@@ -2,7 +2,7 @@ from resilientpay_sim.engine import Simulator
 from resilientpay_sim.scenarios.catalogue import ALL_SCENARIOS
 
 
-def test_all_scenarios_produce_valid_results():
+def test_all_scenarios_produce_valid_results() -> None:
     for scenario_name, config_factory in ALL_SCENARIOS.items():
         config = config_factory(seed=1)
         sim = Simulator(config)
