@@ -112,20 +112,25 @@ func (r *SMSReassembler) Ingest(msg string) ([]byte, []byte, bool, error) {
 	buf.Parts[partNum] = payload
 
 	if len(buf.Parts) == buf.Total {
-		// Complete! Part 1 is CBOR, Part 2 is Signature
-		cborStr := buf.Parts[1]
-		sigStr := buf.Parts[2]
-
 		delete(r.buffers, txPrefix)
 
-		cborBytes, err := base64.StdEncoding.DecodeString(cborStr)
-		if err != nil {
-			return nil, nil, false, fmt.Errorf("failed to decode base64 CBOR: %w", err)
+		p1Bytes, err1 := base64.StdEncoding.DecodeString(buf.Parts[1])
+		p2Bytes, err2 := base64.StdEncoding.DecodeString(buf.Parts[2])
+		if err1 != nil || err2 != nil {
+			return nil, nil, false, errors.New("failed to decode base64 payload")
 		}
 
-		sigBytes, err := base64.StdEncoding.DecodeString(sigStr)
-		if err != nil {
-			return nil, nil, false, fmt.Errorf("failed to decode base64 signature: %w", err)
+		var cborBytes, sigBytes []byte
+		if len(p1Bytes) == 106 && len(p2Bytes) == 64 {
+			cborBytes = p1Bytes
+			sigBytes = p2Bytes
+		} else if len(p1Bytes)+len(p2Bytes) == 170 {
+			full := append(p1Bytes, p2Bytes...)
+			cborBytes = full[:106]
+			sigBytes = full[106:]
+		} else {
+			cborBytes = p1Bytes
+			sigBytes = p2Bytes
 		}
 
 		return cborBytes, sigBytes, true, nil
