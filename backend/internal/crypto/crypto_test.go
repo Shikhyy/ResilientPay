@@ -119,6 +119,53 @@ func TestCrossSDKTestVector_CBORMatches(t *testing.T) {
 	}
 }
 
+func TestDecodeFromCBOR_MatchesVector(t *testing.T) {
+	expectedCBOR, err := hex.DecodeString(crossSDKCBORHex)
+	if err != nil {
+		t.Fatalf("bad test hex: %v", err)
+	}
+
+	decoded, err := DecodeFromCBOR(expectedCBOR)
+	if err != nil {
+		t.Fatalf("DecodeFromCBOR failed: %v", err)
+	}
+
+	original := vectorSubmission()
+	if decoded.ProtocolVersion != original.ProtocolVersion {
+		t.Errorf("ProtocolVersion mismatch: got %d, want %d", decoded.ProtocolVersion, original.ProtocolVersion)
+	}
+	if decoded.TxID != original.TxID {
+		t.Errorf("TxID mismatch: got %s, want %s", decoded.TxID, original.TxID)
+	}
+	if decoded.CredentialID != original.CredentialID {
+		t.Errorf("CredentialID mismatch: got %s, want %s", decoded.CredentialID, original.CredentialID)
+	}
+	if decoded.PayerKeyID != original.PayerKeyID {
+		t.Errorf("PayerKeyID mismatch: got %s, want %s", decoded.PayerKeyID, original.PayerKeyID)
+	}
+	if decoded.MerchantID != original.MerchantID {
+		t.Errorf("MerchantID mismatch: got %s, want %s", decoded.MerchantID, original.MerchantID)
+	}
+	if decoded.AmountMinor != original.AmountMinor {
+		t.Errorf("AmountMinor mismatch: got %d, want %d", decoded.AmountMinor, original.AmountMinor)
+	}
+	if decoded.Currency != original.Currency {
+		t.Errorf("Currency mismatch: got %s, want %s", decoded.Currency, original.Currency)
+	}
+	if decoded.Counter != original.Counter {
+		t.Errorf("Counter mismatch: got %d, want %d", decoded.Counter, original.Counter)
+	}
+	if string(decoded.Nonce) != string(original.Nonce) {
+		t.Errorf("Nonce mismatch")
+	}
+	if decoded.CreatedAtUnix != original.CreatedAtUnix {
+		t.Errorf("CreatedAtUnix mismatch: got %d, want %d", decoded.CreatedAtUnix, original.CreatedAtUnix)
+	}
+	if decoded.ExpiresAtUnix != original.ExpiresAtUnix {
+		t.Errorf("ExpiresAtUnix mismatch: got %d, want %d", decoded.ExpiresAtUnix, original.ExpiresAtUnix)
+	}
+}
+
 // TestCrossSDKTestVector_SigningInputMatchesLength verifies the signing input
 // (domain separator || CBOR) has the expected total length.
 func TestCrossSDKTestVector_SigningInputLength(t *testing.T) {

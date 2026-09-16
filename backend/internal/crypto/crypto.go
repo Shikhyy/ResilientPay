@@ -38,6 +38,7 @@ import (
 	"fmt"
 
 	gocbor "github.com/fxamacker/cbor/v2"
+	"github.com/google/uuid"
 
 	"github.com/Shikhyy/ResilientPay/backend/internal/domain"
 )
@@ -222,4 +223,161 @@ func uuidToBytes(id [16]byte) []byte {
 	b := make([]byte, 16)
 	copy(b, id[:])
 	return b
+}
+
+// DecodeFromCBOR parses a 13-element canonical CBOR array into a TransactionSubmission.
+// It matches the 13 fields produced by encodeToCBOR.
+func DecodeFromCBOR(cborBytes []byte) (*domain.TransactionSubmission, error) {
+	dec, err := gocbor.DecOptions{}.DecMode()
+	if err != nil {
+		return nil, fmt.Errorf("DecMode error: %w", err)
+	}
+
+	var rawItems []interface{}
+	if err := dec.Unmarshal(cborBytes, &rawItems); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal CBOR: %w", err)
+	}
+
+	if len(rawItems) != 13 {
+		return nil, fmt.Errorf("canonical CBOR array must have 13 items, got %d", len(rawItems))
+	}
+
+	sub := &domain.TransactionSubmission{
+		CanonicalBytes: cborBytes,
+	}
+
+	// [0] protocol_version (uint)
+	if pv, ok := toUint64(rawItems[0]); ok {
+		sub.ProtocolVersion = uint32(pv)
+	} else {
+		return nil, fmt.Errorf("invalid protocol_version at index 0")
+	}
+
+	// [1] tx_id (16-byte bstr)
+	if id, err := parseUUIDBytes(rawItems[1]); err == nil {
+		sub.TxID = id
+	} else {
+		return nil, fmt.Errorf("invalid tx_id at index 1: %w", err)
+	}
+
+	// [2] credential_id (16-byte bstr)
+	if id, err := parseUUIDBytes(rawItems[2]); err == nil {
+		sub.CredentialID = id
+	} else {
+		return nil, fmt.Errorf("invalid credential_id at index 2: %w", err)
+	}
+
+	// [3] payer_key_id (16-byte bstr)
+	if id, err := parseUUIDBytes(rawItems[3]); err == nil {
+		sub.PayerKeyID = id
+	} else {
+		return nil, fmt.Errorf("invalid payer_key_id at index 3: %w", err)
+	}
+
+	// [4] merchant_id (16-byte bstr)
+	if id, err := parseUUIDBytes(rawItems[4]); err == nil {
+		sub.MerchantID = id
+	} else {
+		return nil, fmt.Errorf("invalid merchant_id at index 4: %w", err)
+	}
+
+	// [5] amount_minor (uint)
+	if amt, ok := toUint64(rawItems[5]); ok {
+		sub.AmountMinor = amt
+	} else {
+		return nil, fmt.Errorf("invalid amount_minor at index 5")
+	}
+
+	// [6] currency (tstr)
+	if curr, ok := rawItems[6].(string); ok {
+		sub.Currency = curr
+	} else {
+		return nil, fmt.Errorf("invalid currency at index 6")
+	}
+
+	// [7] counter (uint)
+	if ctr, ok := toUint64(rawItems[7]); ok {
+		sub.Counter = ctr
+	} else {
+		return nil, fmt.Errorf("invalid counter at index 7")
+	}
+
+	// [8] nonce (16-byte bstr)
+	if nonceBytes, ok := rawItems[8].([]byte); ok && len(nonceBytes) == 16 {
+		sub.Nonce = nonceBytes
+	} else {
+		return nil, fmt.Errorf("invalid nonce at index 8")
+	}
+
+	// [9] created_at_unix (int)
+	if ca, ok := toInt64(rawItems[9]); ok {
+		sub.CreatedAtUnix = ca
+	} else {
+		return nil, fmt.Errorf("invalid created_at_unix at index 9")
+	}
+
+	// [10] expires_at_unix (int)
+	if ea, ok := toInt64(rawItems[10]); ok {
+		sub.ExpiresAtUnix = ea
+	} else {
+		return nil, fmt.Errorf("invalid expires_at_unix at index 10")
+	}
+
+	// [11] previous_event_hash (32-byte bstr or null)
+	if rawItems[11] != nil {
+		if b, ok := rawItems[11].([]byte); ok {
+			sub.PreviousEventHash = b
+		}
+	}
+
+	// [12] risk_class (tstr or null)
+	if rawItems[12] != nil {
+		if rc, ok := rawItems[12].(string); ok {
+			sub.RiskClass = rc
+		}
+	}
+
+	return sub, nil
+}
+
+func toUint64(v interface{}) (uint64, bool) {
+	switch n := v.(type) {
+	case uint64:
+		return n, true
+	case uint:
+		return uint64(n), true
+	case uint32:
+		return uint64(n), true
+	case int64:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	case int:
+		if n >= 0 {
+			return uint64(n), true
+		}
+	}
+	return 0, false
+}
+
+func toInt64(v interface{}) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case uint64:
+		return int64(n), true
+	case uint32:
+		return int64(n), true
+	}
+	return 0, false
+}
+
+func parseUUIDBytes(v interface{}) (uuid.UUID, error) {
+	b, ok := v.([]byte)
+	if !ok || len(b) != 16 {
+		return uuid.Nil, errors.New("expected 16-byte slice for UUID")
+	}
+	return uuid.FromBytes(b)
 }

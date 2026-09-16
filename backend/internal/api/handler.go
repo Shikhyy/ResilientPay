@@ -44,6 +44,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/credentials", h.handleIssueCredential)
 	// Task 3: Reconcile handler
 	mux.HandleFunc("POST /v1/reconciliation/transactions", h.handleReconcileTransaction)
+	// SMS webhook ingestion
+	mux.HandleFunc("POST /v1/telecom/sms", h.handleIngestSMS)
 	
 	mux.HandleFunc("GET /v1/transactions/", h.handleGetTransaction)
 	mux.HandleFunc("GET /v1/credentials/", h.handleGetCredential)
