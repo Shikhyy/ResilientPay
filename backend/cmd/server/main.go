@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -46,9 +47,22 @@ func main() {
 		"note", "this is NOT a production UPI or banking service",
 	)
 
-	// Wiring: in-memory store.
-	// TODO(persistence): replace with PostgreSQL store once migrations are ready.
-	st := store.NewMemStore()
+	// Wiring: storage backend (PostgreSQL if DATABASE_URL is set, otherwise in-memory).
+	var st store.Store
+	dbURL := envOrDefault("DATABASE_URL", "")
+	if dbURL != "" {
+		pgStore, err := store.NewPostgresStore(context.Background(), dbURL)
+		if err != nil {
+			slog.Error("failed to connect to postgresql database", "err", err)
+			os.Exit(1)
+		}
+		defer pgStore.Close()
+		st = pgStore
+		slog.Info("connected to PostgreSQL store", "url_redacted", "configured")
+	} else {
+		st = store.NewMemStore()
+		slog.Info("using in-memory store (DATABASE_URL not set)")
+	}
 
 	// Wiring: real Ed25519 verifier (stdlib crypto/ed25519, no external dependency).
 	verifier := bkCrypto.NewEd25519Verifier()
@@ -61,12 +75,16 @@ func main() {
 	handler := api.NewHandler(svc, st)
 
 	mux := http.NewServeMux()
-	rl := middleware.NewRateLimiter(10, 20)
+	rateLimitRps := envIntOrDefault("RESILIENTPAY_RATE_LIMIT_RPS", 10)
+	rateLimitBurst := envIntOrDefault("RESILIENTPAY_RATE_LIMIT_BURST", 20)
+	rl := middleware.NewRateLimiter(float64(rateLimitRps), rateLimitBurst)
 
 	handler.RegisterRoutes(mux)
 
 	// Wiring: Settlement Worker
-	settlementWorker := settlement.NewWorker(st, 5*time.Second, 100, logger)
+	settlementIntervalSec := envIntOrDefault("RESILIENTPAY_SETTLEMENT_INTERVAL_SEC", 5)
+	settlementBatchSize := envIntOrDefault("RESILIENTPAY_SETTLEMENT_BATCH_SIZE", 100)
+	settlementWorker := settlement.NewWorker(st, time.Duration(settlementIntervalSec)*time.Second, settlementBatchSize, logger)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	go settlementWorker.Start(workerCtx)
 
@@ -115,6 +133,15 @@ var _ reconciliation.CanonicalEncoder = (*bkCrypto.CanonicalEncoder)(nil)
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envIntOrDefault(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
 	}
 	return def
 }
