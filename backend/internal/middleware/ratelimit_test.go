@@ -76,23 +76,63 @@ func TestRateLimiter_BlocksOverLimit(t *testing.T) {
 	}
 }
 
-func TestRateLimiter_IgnoresInvalidBody(t *testing.T) {
+func TestRateLimiter_UsesIPFallbackForInvalidCredential(t *testing.T) {
 	rl := NewRateLimiter(10, 1) // 10 req/s, burst 1
 
 	handler := rl.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// Invalid body
+	// Invalid UUID body: should fall through to IP-based rate limiting.
+	// With burst=1 the first request from the same IP passes.
 	body := []byte(`{"credential_id":"not-a-uuid"}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/reconcile", bytes.NewReader(body))
+	req.RemoteAddr = "203.0.113.42:5000"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	// Should pass through to handler because it's not valid JSON with uuid
 	if rec.Code != http.StatusOK {
-		t.Errorf("Expected 200 OK, got %d", rec.Code)
+		t.Errorf("Expected 200 OK for first IP request, got %d", rec.Code)
+	}
+
+	// Second request from the same IP immediately should be blocked (IP bucket exhausted).
+	req2 := httptest.NewRequest(http.MethodPost, "/reconcile", bytes.NewReader(body))
+	req2.RemoteAddr = "203.0.113.42:5000"
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Errorf("Expected 429 for second IP request, got %d", rec2.Code)
+	}
+}
+
+func TestRateLimiter_SMSPlainTextAppliesIPRateLimit(t *testing.T) {
+	rl := NewRateLimiter(10, 1) // 10 req/s, burst 1
+
+	handler := rl.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	smsBody := []byte("RESPAY/1/2:abc123:SGVsbG8=")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/telecom/sms", bytes.NewReader(smsBody))
+	req.Header.Set("Content-Type", "text/plain")
+	req.RemoteAddr = "198.51.100.10:9000"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected 200 for first SMS request, got %d", rec.Code)
+	}
+
+	// Second SMS from same IP immediately: rate limited via IP bucket.
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/telecom/sms", bytes.NewReader(smsBody))
+	req2.Header.Set("Content-Type", "text/plain")
+	req2.RemoteAddr = "198.51.100.10:9000"
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Errorf("Expected 429 for second SMS request from same IP, got %d", rec2.Code)
 	}
 }
 
@@ -111,3 +151,4 @@ func TestRateLimiter_IgnoresGET(t *testing.T) {
 		t.Errorf("Expected 200 OK, got %d", rec.Code)
 	}
 }
+

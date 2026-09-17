@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/Shikhyy/ResilientPay/backend/internal/crypto"
 	"github.com/Shikhyy/ResilientPay/backend/internal/domain"
 )
+
 
 // SMSWebhookRequest represents an incoming SMS message forwarded by a telecom gateway.
 type SMSWebhookRequest struct {
@@ -144,7 +146,18 @@ var defaultSMSReassembler = NewSMSReassembler(10 * time.Minute)
 
 // handleIngestSMS receives an SMS webhook payload, reassembles multipart segments,
 // and reconciles completed transaction envelopes.
+//
+// Security note: The backend MUST be deployed behind a reverse proxy that authenticates
+// the originating telecom gateway (e.g., HMAC-SHA256 webhook signature). This handler
+// trusts that the gateway has already authenticated the sender phone number; it does not
+// perform SMS sender authentication itself, per the research prototype scope.
 func (h *Handler) handleIngestSMS(w http.ResponseWriter, r *http.Request) {
+	// Bound total body size before any allocation (RP-BK-005).
+	// SMS segments are ≤ 170 bytes base64-encoded (~228 chars each); two segments
+	// plus JSON envelope overhead fits within 4 KB. We allow 8 KB for headroom.
+	const maxSMSBodyBytes = 8 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, maxSMSBodyBytes)
+
 	var req SMSWebhookRequest
 
 	contentType := r.Header.Get("Content-Type")
@@ -154,19 +167,13 @@ func (h *Handler) handleIngestSMS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Assume text/plain
-		var bodyBuf strings.Builder
-		buf := make([]byte, 1024)
-		for {
-			n, err := r.Body.Read(buf)
-			if n > 0 {
-				bodyBuf.Write(buf[:n])
-			}
-			if err != nil {
-				break
-			}
+		// Assume text/plain — bounded by MaxBytesReader above.
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "request body too large or unreadable", "BODY_READ_ERROR")
+			return
 		}
-		req.Message = bodyBuf.String()
+		req.Message = string(bodyBytes)
 	}
 
 	if req.Message == "" {

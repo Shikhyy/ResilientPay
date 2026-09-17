@@ -186,6 +186,11 @@ func (h *Handler) handleReconcileTransaction(w http.ResponseWriter, r *http.Requ
 // handleGetTransaction returns the current state of a transaction.
 func (h *Handler) handleGetTransaction(w http.ResponseWriter, r *http.Request) {
 	txIDStr := strings.TrimPrefix(r.URL.Path, "/v1/transactions/")
+	// UUID is 36 characters including hyphens; reject anything longer.
+	if len(txIDStr) > 36 {
+		writeError(w, http.StatusBadRequest, "invalid tx_id UUID", "INVALID_ID")
+		return
+	}
 	txID, err := uuid.Parse(txIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid tx_id UUID", "INVALID_ID")
@@ -208,6 +213,11 @@ func (h *Handler) handleGetTransaction(w http.ResponseWriter, r *http.Request) {
 // handleGetCredential returns the metadata of a credential (no key material).
 func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/v1/credentials/")
+	// UUID is 36 characters including hyphens; reject anything longer.
+	if len(idStr) > 36 {
+		writeError(w, http.StatusBadRequest, "invalid credential_id UUID", "INVALID_ID")
+		return
+	}
 	credID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid credential_id UUID", "INVALID_ID")
@@ -235,25 +245,36 @@ func (h *Handler) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------------------
-// Hex helper (minimal, avoids importing encoding/hex for readability)
+// Hex helper
 // ---------------------------------------------------------------------------
 
+// hexDecode decodes a lowercase or uppercase hexadecimal string into bytes.
+// Returns an error for odd-length strings, invalid hex characters, or inputs
+// exceeding maxHexLen characters (512 chars = 256 bytes, larger than any
+// key material used in this protocol).
 func hexDecode(s string) ([]byte, error) {
+	const maxHexLen = 512
+	if len(s) > maxHexLen {
+		return nil, &hexError{msg: "hex string exceeds maximum allowed length"}
+	}
+	if len(s)%2 != 0 {
+		return nil, &hexError{msg: "hex string has odd length"}
+	}
 	b := make([]byte, len(s)/2)
 	for i := range b {
 		hi := hexNibble(s[i*2])
 		lo := hexNibble(s[i*2+1])
 		if hi == 255 || lo == 255 {
-			return nil, &hexError{}
+			return nil, &hexError{msg: "invalid hex character"}
 		}
 		b[i] = hi<<4 | lo
 	}
 	return b, nil
 }
 
-type hexError struct{}
+type hexError struct{ msg string }
 
-func (hexError) Error() string { return "invalid hex" }
+func (e *hexError) Error() string { return e.msg }
 
 func hexNibble(c byte) byte {
 	switch {
@@ -266,3 +287,4 @@ func hexNibble(c byte) byte {
 	}
 	return 255
 }
+
