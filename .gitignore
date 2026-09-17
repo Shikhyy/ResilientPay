@@ -1,5 +1,6 @@
 # --- macOS ---
 .DS_Store
+**/.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V2
@@ -22,12 +23,13 @@ Cargo.lock
 *.out
 vendor/
 go.work.sum
+# compiled server binary (produced by 'go build')
+backend/server
 
 # --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
 build/
 dist/
@@ -39,6 +41,8 @@ ENV/
 env/
 .pytest_cache/
 .mypy_cache/
+# Simulator experiment results (auto-generated; large; not part of source)
+simulator/results/*.json
 
 # --- Android / Kotlin / Gradle ---
 *.iml
@@ -77,6 +81,12 @@ GoogleService-Info.plist
 dist/
 out/
 *.log
+
+# --- CI / scaffolding scripts (local-only tooling) ---
+wait_ci.sh
+create_ui.sh
+scaffold_android_ui.sh
+build_in_docker.sh
 
 # --- Research notebooks (keep .py; exclude heavy outputs) ---
 *.ipynb_checkpoints/
