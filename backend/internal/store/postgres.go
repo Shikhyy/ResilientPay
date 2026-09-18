@@ -256,15 +256,47 @@ func (s *PostgresStore) MarkTransactionSettled(ctx context.Context, txID uuid.UU
 
 // SaveTransactionWithBudget atomically saves a transaction record and increments the
 // offline budget for credentialID by deltaMinor in a single database transaction.
-//
-// TODO: implement using pgx Tx to wrap both the INSERT into transactions and the
-// UPSERT into offline_budgets inside a single BEGIN/COMMIT block. Until this TODO
-// is resolved, callers fall back to separate SaveTransaction + UpdateOfflineBudget
-// calls (same non-atomic behaviour as before this interface method was added).
 func (s *PostgresStore) SaveTransactionWithBudget(ctx context.Context, tx *domain.Transaction, credentialID uuid.UUID, deltaMinor int64) error {
-	// TODO: wrap in a pgx Tx for atomicity.
-	if err := s.SaveTransaction(ctx, tx); err != nil {
+	if deltaMinor < 0 {
+		return errors.New("deltaMinor must be positive")
+	}
+
+	dbTx, err := s.pool.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	return s.UpdateOfflineBudget(ctx, credentialID, deltaMinor)
+	defer dbTx.Rollback(ctx)
+
+	// 1. Save or update the transaction inside the transaction block
+	_, err = dbTx.Exec(ctx, `
+		INSERT INTO transactions (
+			tx_id, credential_id, payer_key_id, merchant_id,
+			amount_minor, currency, counter, nonce,
+			created_at_unix, expires_at_unix, previous_event_hash, risk_class,
+			signature_bytes, protocol_version, state
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		ON CONFLICT (tx_id) DO UPDATE SET
+			state = EXCLUDED.state,
+			updated_at = NOW()
+	`, tx.TxID, tx.CredentialID, tx.PayerKeyID, tx.MerchantID,
+		tx.Amount.AmountMinor, tx.Amount.Currency, tx.Counter, tx.Nonce,
+		tx.CreatedAtUnix, tx.ExpiresAtUnix, tx.PreviousEventHash, tx.RiskClass,
+		tx.SignatureBytes, tx.ProtocolVersion, tx.State)
+	if err != nil {
+		return err
+	}
+
+	// 2. Increment offline budget atomically inside the same transaction block
+	_, err = dbTx.Exec(ctx, `
+		INSERT INTO offline_budgets (credential_id, outstanding_minor)
+		VALUES ($1, $2)
+		ON CONFLICT (credential_id) DO UPDATE SET
+			outstanding_minor = offline_budgets.outstanding_minor + EXCLUDED.outstanding_minor,
+			last_updated_at = NOW()
+	`, credentialID, deltaMinor)
+	if err != nil {
+		return err
+	}
+
+	return dbTx.Commit(ctx)
 }

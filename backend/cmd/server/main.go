@@ -57,8 +57,20 @@ func main() {
 			os.Exit(1)
 		}
 		defer pgStore.Close()
+
+		migrationsDir := envOrDefault("MIGRATIONS_DIR", "migrations")
+		if _, err := os.Stat(migrationsDir); os.IsNotExist(err) {
+			migrationsDir = "backend/migrations"
+		}
+		if _, err := os.Stat(migrationsDir); err == nil {
+			if err := pgStore.RunMigrations(context.Background(), migrationsDir); err != nil {
+				slog.Error("failed to run database migrations", "err", err)
+				os.Exit(1)
+			}
+		}
+
 		st = pgStore
-		slog.Info("connected to PostgreSQL store", "url_redacted", "configured")
+		slog.Info("connected to PostgreSQL store and verified migrations", "url_redacted", "configured")
 	} else {
 		st = store.NewMemStore()
 		slog.Info("using in-memory store (DATABASE_URL not set)")
