@@ -59,6 +59,13 @@ type Store interface {
 	// deltaMinor must be positive (adding spend). Negative values are not supported.
 	UpdateOfflineBudget(ctx context.Context, credentialID uuid.UUID, deltaMinor int64) error
 
+	// SaveTransactionWithBudget atomically saves a transaction record and increments
+	// the offline budget for credentialID by deltaMinor under a single write lock.
+	// This eliminates the TOCTOU window between a separate SaveTransaction +
+	// UpdateOfflineBudget call pair.
+	// deltaMinor must be positive.
+	SaveTransactionWithBudget(ctx context.Context, tx *domain.Transaction, credentialID uuid.UUID, deltaMinor int64) error
+
 	// Settlement operations
 	GetUnsettledTransactions(ctx context.Context, limit int) ([]*domain.Transaction, error)
 	MarkTransactionSettled(ctx context.Context, txID uuid.UUID) error
@@ -235,6 +242,22 @@ func (s *MemStore) UpdateOfflineBudget(ctx context.Context, credentialID uuid.UU
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.budgets[credentialID] += deltaMinor
+	return nil
+}
+
+// SaveTransactionWithBudget atomically saves the transaction and increments the offline
+// budget for credentialID under a single write lock.
+// This eliminates the TOCTOU window that exists when SaveTransaction and
+// UpdateOfflineBudget are called sequentially in the reconciliation service.
+func (s *MemStore) SaveTransactionWithBudget(ctx context.Context, tx *domain.Transaction, credentialID uuid.UUID, deltaMinor int64) error {
+	if deltaMinor < 0 {
+		return errors.New("deltaMinor must be positive")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *tx
+	s.transactions[tx.TxID] = &cp
 	s.budgets[credentialID] += deltaMinor
 	return nil
 }

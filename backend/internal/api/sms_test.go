@@ -130,7 +130,7 @@ func TestHandleIngestSMS_HTTPIntegration(t *testing.T) {
 		},
 	}
 
-	handler := NewHandler(mock, nil)
+	handler := NewHandler(mock, nil, "") // empty issuerSecret = dev mode
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 

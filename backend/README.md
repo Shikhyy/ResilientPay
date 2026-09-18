@@ -115,7 +115,8 @@ No `NUMERIC`, `FLOAT`, or `DOUBLE PRECISION` columns are used for monetary amoun
 ## Outstanding TODOs
 
 - [ ] PostgreSQL store implementation (replace `MemStore`)
+- [ ] PostgreSQL atomic `SaveTransactionWithBudget` via pgx `Tx` (currently falls back to two sequential calls)
 - [ ] Database migration runner integration
-- [ ] mTLS or bearer token authentication
 - [ ] Rate limiting per credential
-- [ ] Offline budget enforcement (see `offline_budgets` table)
+- [x] mTLS or bearer token authentication — `RESILIENTPAY_ISSUER_SECRET` bearer token guard added to `POST /v1/credentials`
+- [x] Offline budget enforcement — `offline_budgets` table enforced; atomic `SaveTransactionWithBudget` eliminates TOCTOU window (MemStore)

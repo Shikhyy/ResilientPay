@@ -253,3 +253,18 @@ func (s *PostgresStore) MarkTransactionSettled(ctx context.Context, txID uuid.UU
 	}
 	return nil
 }
+
+// SaveTransactionWithBudget atomically saves a transaction record and increments the
+// offline budget for credentialID by deltaMinor in a single database transaction.
+//
+// TODO: implement using pgx Tx to wrap both the INSERT into transactions and the
+// UPSERT into offline_budgets inside a single BEGIN/COMMIT block. Until this TODO
+// is resolved, callers fall back to separate SaveTransaction + UpdateOfflineBudget
+// calls (same non-atomic behaviour as before this interface method was added).
+func (s *PostgresStore) SaveTransactionWithBudget(ctx context.Context, tx *domain.Transaction, credentialID uuid.UUID, deltaMinor int64) error {
+	// TODO: wrap in a pgx Tx for atomicity.
+	if err := s.SaveTransaction(ctx, tx); err != nil {
+		return err
+	}
+	return s.UpdateOfflineBudget(ctx, credentialID, deltaMinor)
+}

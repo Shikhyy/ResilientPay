@@ -269,11 +269,12 @@ func (s *Service) Reconcile(ctx context.Context, sub *domain.TransactionSubmissi
 		BackendReceivedAt: now,
 	}
 
-	if err := s.store.SaveTransaction(ctx, tx); err != nil {
-		return nil, fmt.Errorf("store.SaveTransaction: %w", err)
+	// Step 7: Persist new transaction and increment offline budget atomically.
+	// Using SaveTransactionWithBudget to avoid a TOCTOU window between the
+	// transaction save and the budget increment (RP-BK-002).
+	if err := s.store.SaveTransactionWithBudget(ctx, tx, sub.CredentialID, int64(sub.AmountMinor)); err != nil {
+		return nil, fmt.Errorf("store.SaveTransactionWithBudget: %w", err)
 	}
-
-	_ = s.store.UpdateOfflineBudget(ctx, sub.CredentialID, int64(sub.AmountMinor))
 
 	s.emitAudit(ctx, &sub.TxID, &sub.CredentialID, "RECONCILE_ACCEPTED", "")
 

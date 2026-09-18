@@ -72,7 +72,16 @@ func main() {
 	encoder := bkCrypto.NewCanonicalEncoder()
 
 	svc := reconciliation.NewService(st, verifier, encoder)
-	handler := api.NewHandler(svc, st)
+
+	// SECURITY: RESILIENTPAY_ISSUER_SECRET guards POST /v1/credentials (credential issuance).
+	// This MUST be set to a strong random value in any non-local deployment.
+	// If unset, credential issuance requires no authentication (dev/test mode only).
+	issuerSecret := os.Getenv("RESILIENTPAY_ISSUER_SECRET")
+	if issuerSecret == "" {
+		slog.Warn("RESILIENTPAY_ISSUER_SECRET is not set; credential issuance is unauthenticated (dev mode only)")
+	}
+
+	handler := api.NewHandler(svc, st, issuerSecret)
 
 	mux := http.NewServeMux()
 	rateLimitRps := envIntOrDefault("RESILIENTPAY_RATE_LIMIT_RPS", 10)
