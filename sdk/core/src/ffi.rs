@@ -40,13 +40,17 @@ pub trait AndroidKeyManager: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct ResilientPayClient {
     key_manager: Box<dyn AndroidKeyManager>,
+    last_counters: std::sync::Mutex<std::collections::HashMap<String, u64>>,
 }
 
 #[uniffi::export]
 impl ResilientPayClient {
     #[uniffi::constructor]
     pub fn new(key_manager: Box<dyn AndroidKeyManager>) -> Arc<Self> {
-        Arc::new(Self { key_manager })
+        Arc::new(Self {
+            key_manager,
+            last_counters: std::sync::Mutex::new(std::collections::HashMap::new()),
+        })
     }
 
     /// Creates a transaction. Prepares canonical bytes -> calls hardware sign -> returns signed envelope payload.
@@ -83,6 +87,22 @@ impl ResilientPayClient {
             .map_err(|_| FfiError::InvalidInput("Nonce must be exactly 16 bytes".to_string()))?;
 
         let amount = Money::new(amount_minor, "INR")?;
+
+        // Client-side counter monotonicity guard (replay prevention)
+        {
+            let counters = self
+                .last_counters
+                .lock()
+                .map_err(|e| FfiError::Internal(format!("Lock poisoned: {}", e)))?;
+            if let Some(&last) = counters.get(&credential_id_str) {
+                if counter <= last {
+                    return Err(FfiError::InvalidInput(format!(
+                        "Counter monotonicity violation: counter {} must be strictly greater than last seen counter {}",
+                        counter, last
+                    )));
+                }
+            }
+        }
 
         // 1. Build the domain object (PaymentEnvelopeCore)
         let core = PaymentEnvelopeCore::new(
@@ -142,6 +162,10 @@ impl ResilientPayClient {
             r#"{{"core_cbor_hex":"{}","signature_hex":"{}"}}"#,
             hex_cbor, hex_sig
         );
+
+        if let Ok(mut counters) = self.last_counters.lock() {
+            counters.insert(credential_id_str, counter);
+        }
 
         Ok(envelope_json.into_bytes())
     }

@@ -117,3 +117,71 @@ fn test_ffi_invalid_uuid() {
 
     assert!(matches!(err, FfiError::InvalidInput(_)));
 }
+
+#[test]
+fn test_ffi_counter_monotonicity_rejected() {
+    struct DynamicKeyManager {
+        signer: Ed25519TestSigner,
+    }
+    impl AndroidKeyManager for DynamicKeyManager {
+        fn get_public_key(&self, _key_id: String) -> Result<Vec<u8>, FfiError> {
+            Ok(self.signer.public_key().to_bytes().to_vec())
+        }
+        fn sign(&self, _key_id: String, payload: Vec<u8>) -> Result<Vec<u8>, FfiError> {
+            Ok(self.signer.sign(&payload).unwrap().to_bytes().to_vec())
+        }
+    }
+
+    let signer = Ed25519TestSigner::from_seed(&[0x42; 32]);
+    let key_manager = Box::new(DynamicKeyManager { signer });
+    let client = ResilientPayClient::new(key_manager);
+
+    // First transaction with counter = 10 succeeds
+    let _ = client
+        .create_transaction(
+            VECTOR_TX_UUID.to_string(),
+            VECTOR_CR_UUID.to_string(),
+            VECTOR_KEY_UUID.to_string(),
+            VECTOR_MER_UUID.to_string(),
+            VECTOR_AMOUNT,
+            10,
+            VECTOR_NONCE.to_vec(),
+            VECTOR_CREATED,
+            VECTOR_EXPIRES,
+        )
+        .expect("initial transaction should succeed");
+
+    // Second transaction with equal counter (10) must fail
+    let err_equal = client
+        .create_transaction(
+            VECTOR_TX_UUID.to_string(),
+            VECTOR_CR_UUID.to_string(),
+            VECTOR_KEY_UUID.to_string(),
+            VECTOR_MER_UUID.to_string(),
+            VECTOR_AMOUNT,
+            10,
+            VECTOR_NONCE.to_vec(),
+            VECTOR_CREATED,
+            VECTOR_EXPIRES,
+        )
+        .unwrap_err();
+
+    assert!(matches!(err_equal, FfiError::InvalidInput(msg) if msg.contains("Counter monotonicity violation")));
+
+    // Third transaction with lower counter (9) must also fail
+    let err_lower = client
+        .create_transaction(
+            VECTOR_TX_UUID.to_string(),
+            VECTOR_CR_UUID.to_string(),
+            VECTOR_KEY_UUID.to_string(),
+            VECTOR_MER_UUID.to_string(),
+            VECTOR_AMOUNT,
+            9,
+            VECTOR_NONCE.to_vec(),
+            VECTOR_CREATED,
+            VECTOR_EXPIRES,
+        )
+        .unwrap_err();
+
+    assert!(matches!(err_lower, FfiError::InvalidInput(msg) if msg.contains("Counter monotonicity violation")));
+}
