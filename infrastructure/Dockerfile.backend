@@ -1,0 +1,36 @@
+# Multi-stage Dockerfile for ResilientPay Reconciliation Backend
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install git and build tools
+RUN apk add --no-cache git ca-certificates
+
+# Copy go mod and sum files
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+# Copy backend source code
+COPY backend/ ./
+
+# Build statically linked binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/resilientpay-server ./cmd/server
+
+# Final minimal runtime container
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+
+# Non-root user for least-privilege security
+RUN addgroup -S resilientpay && adduser -S resilientpay -G resilientpay
+USER resilientpay
+
+COPY --from=builder /app/bin/resilientpay-server /app/resilientpay-server
+
+EXPOSE 8080
+
+ENV RESILIENTPAY_ADDR=":8080"
+
+ENTRYPOINT ["/app/resilientpay-server"]

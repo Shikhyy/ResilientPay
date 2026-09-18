@@ -3,34 +3,52 @@
 
 Infrastructure supports local development, continuous integration, and future deployment workflows.
 
-## Local development
+## Local Development with Docker Compose
 
-The first milestone should provide a reproducible local environment using documented commands and controlled test data.
+A turnkey multi-service setup is provided using Docker Compose:
+- **PostgreSQL 16**: Relational storage engine with automated migrations.
+- **ResilientPay Reconciliation Backend**: Go microservice compiled via multi-stage alpine build.
 
-Expected local services may include:
-- PostgreSQL
-- backend service
-- simulator
-- optional observability stack
+### Running Services
+From the repository root:
+```bash
+docker compose -f infrastructure/docker-compose.yml up --build -d
+```
 
-## CI
+### Verifying Service Health
+```bash
+# Check service health and logs
+docker compose -f infrastructure/docker-compose.yml ps
+docker compose -f infrastructure/docker-compose.yml logs -f backend
 
-CI should validate changed areas and execute cross-component checks when interfaces are affected.
+# Test backend health endpoint
+curl -i http://localhost:8080/health
+```
 
-## Deployment boundary
+### Tearing Down
+```bash
+docker compose -f infrastructure/docker-compose.yml down -v
+```
+
+## Continuous Integration (CI)
+
+CI workflows reside in `.github/workflows/ci.yml` and execute automated gates on push and pull requests:
+- **Rust Core SDK**: Compiles `sdk/core`, executes unit and integration tests, and validates frozen protocol vectors.
+- **Go Backend**: Runs race detection (`go test -race -v ./...`) across all packages.
+- **Python Simulator**: Executes test suite and benchmark invariants.
+
+## Deployment Boundary
 
 Research infrastructure must be clearly separated from any future production configuration. Prototype credentials, simulated money, and local secrets must never be treated as production values.
 
-## Future production
+## Future Production
 
 Production deployment will require additional architecture for:
-- high availability
-- secret management
-- key management
-- data protection
-- disaster recovery
-- monitoring
-- incident response
-- regulatory controls
+- high availability & multi-region database failover
+- HSM-backed secret and key management
+- rate limiting & DDoS mitigation
+- disaster recovery & automated backup replication
+- audit logging & SIEM observability
+- strict regulatory compliance (RBI / NPCI certifications)
 
-The existence of deployment scripts must not be interpreted as production readiness.
+The existence of deployment scripts must not be interpreted as live UPI production readiness.
