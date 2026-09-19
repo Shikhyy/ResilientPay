@@ -28,6 +28,7 @@ RUN addgroup -S resilientpay && adduser -S resilientpay -G resilientpay
 USER resilientpay
 
 COPY --from=builder /app/bin/resilientpay-server /app/resilientpay-server
+COPY backend/migrations /app/migrations
 
 EXPOSE 8080
 
