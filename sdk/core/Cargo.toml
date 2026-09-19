@@ -5,6 +5,7 @@ edition = "2021"
 description = "ResilientPay SDK core: payment domain types, state machine, validation, serialization, and crypto boundary"
 license = "Apache-2.0"
 repository = "https://github.com/Shikhyy/ResilientPay"
+readme = "README.md"
 rust-version = "1.70"
 
 [lib]

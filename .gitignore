@@ -10,7 +10,6 @@ Thumbs.db
 
 # --- Rust ---
 target/
-Cargo.lock
 *.pdb
 
 # --- Go ---
